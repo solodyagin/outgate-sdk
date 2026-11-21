@@ -220,7 +220,13 @@ func TestHTTPStartBounds(t *testing.T) {
 }
 
 func FuzzDecodeRequestStart(f *testing.F) {
-	f.Add([]byte(responseFixtures(f)["request_start"]))
+	golden := responseFixtures(f)["request_start"]
+	f.Add([]byte(golden))
+	fields := responseFields(f, golden)
+	for _, uri := range []string{"/%D1%8F?x=1+2&x=%2f", "/%252f?", "/a%2fb", "/%2e%2e/b", "/a?x=%"} {
+		fields["raw_request_uri"] = uri
+		f.Add(responseBytes(f, fields))
+	}
 	f.Fuzz(func(t *testing.T, b []byte) {
 		r, err := DecodeRequestStart(b)
 		if err == nil {

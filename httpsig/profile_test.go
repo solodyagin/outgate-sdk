@@ -483,6 +483,10 @@ func FuzzVerifyProfile(f *testing.F) {
 	for i, v := range vv {
 		f.Add(uint8(i), v.Input, v.Signature, v.RawURI)
 	}
+	v := vv[0]
+	f.Add(uint8(0), v.Input, v.Signature, "/%D1%8F?x=1+2&x=%2f")
+	f.Add(uint8(0), v.Input, v.Signature, "/%2f")
+	f.Add(uint8(0), v.Input, v.Signature+"\r\n", v.RawURI)
 	f.Fuzz(func(t *testing.T, seed uint8, input, signature, uri string) {
 		v := vv[int(seed)%len(vv)]
 		p, r, key, params := setup(t, v)

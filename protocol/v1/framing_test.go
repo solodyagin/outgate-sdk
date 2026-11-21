@@ -192,7 +192,13 @@ type shortWriter struct{}
 func (shortWriter) Write([]byte) (int, error) { return 0, nil }
 
 func FuzzDecodeChunk(f *testing.F) {
-	f.Add([]byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 'x'})
+	chunk := []byte{1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 'x'}
+	f.Add(chunk)
+	f.Add(chunk[:15]) // Truncated header.
+	f.Add(chunk[:16]) // Missing declared payload.
+	invalidFlags := bytes.Clone(chunk)
+	invalidFlags[3] = 1
+	f.Add(invalidFlags)
 	f.Fuzz(func(t *testing.T, b []byte) {
 		c, err := DecodeChunk(b, MaxChunkBytes)
 		if err != nil {
