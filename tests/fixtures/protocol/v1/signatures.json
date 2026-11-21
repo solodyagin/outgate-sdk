@@ -1,0 +1,278 @@
+{
+  "warning": "TEST ONLY: fixed keys/time/assertion; valid HMAC does not imply valid production JWT or credentials.",
+  "vectors": [
+    {
+      "name": "development-background",
+      "production": false,
+      "user": false,
+      "label": "outgatecall",
+      "transport": "http1",
+      "method": "GET",
+      "raw_request_uri": "/api/v2/reports",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "components": [
+        {
+          "name": "@method",
+          "value": "GET"
+        },
+        {
+          "name": "@authority",
+          "value": "gateway.example.com:9443"
+        },
+        {
+          "name": "@path",
+          "value": "/api/v2/reports"
+        },
+        {
+          "name": "@query",
+          "value": "?"
+        },
+        {
+          "name": "x-outgate-caller-service",
+          "value": "my-service"
+        },
+        {
+          "name": "x-outgate-target-service",
+          "value": "reports-service"
+        },
+        {
+          "name": "x-outgate-context-headers",
+          "value": "[]"
+        }
+      ],
+      "signature_input": "outgatecall=(\"@method\" \"@authority\" \"@path\" \"@query\" \"x-outgate-caller-service\" \"x-outgate-target-service\" \"x-outgate-context-headers\");created=1700000000;expires=1700000060;nonce=\"AAAAAAAAAAAAAAAAAAAAAA\";keyid=\"test-key\";alg=\"hmac-sha256\"",
+      "signature_base": "\"@method\": GET\n\"@authority\": gateway.example.com:9443\n\"@path\": /api/v2/reports\n\"@query\": ?\n\"x-outgate-caller-service\": my-service\n\"x-outgate-target-service\": reports-service\n\"x-outgate-context-headers\": []\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\" \"x-outgate-caller-service\" \"x-outgate-target-service\" \"x-outgate-context-headers\");created=1700000000;expires=1700000060;nonce=\"AAAAAAAAAAAAAAAAAAAAAA\";keyid=\"test-key\";alg=\"hmac-sha256\"",
+      "hmac_hex": "755735d76ff9afdf54c81931228c6b1c03e19d2ed8c75c245eebf7707ebe09ea",
+      "signature": "outgatecall=:dVc112/5r99UyBkxIoxrHAPhnS7Yx1wkXuv3cH6+Ceo=:",
+      "negative_replace": {
+        "field": "@path",
+        "value": "/api/v2/other"
+      }
+    },
+    {
+      "name": "development-user-utf8-query",
+      "production": false,
+      "user": true,
+      "label": "outgatecall",
+      "transport": "http1",
+      "method": "GET",
+      "raw_request_uri": "/api/v2/%D0%BE%D1%82%D1%87%D1%91%D1%82?q=a%2Bb&tag=x&tag=y",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "components": [
+        {
+          "name": "@method",
+          "value": "GET"
+        },
+        {
+          "name": "@authority",
+          "value": "gateway.example.com:9443"
+        },
+        {
+          "name": "@path",
+          "value": "/api/v2/%D0%BE%D1%82%D1%87%D1%91%D1%82"
+        },
+        {
+          "name": "@query",
+          "value": "?q=a%2Bb&tag=x&tag=y"
+        },
+        {
+          "name": "x-outgate-caller-service",
+          "value": "my-service"
+        },
+        {
+          "name": "x-outgate-target-service",
+          "value": "reports-service"
+        },
+        {
+          "name": "x-outgate-context-headers",
+          "value": "[\"x-user-id\",\"x-user-roles\"]"
+        },
+        {
+          "name": "x-outgate-expected-route-revision",
+          "value": "7"
+        },
+        {
+          "name": "x-user-id",
+          "value": "user-1"
+        },
+        {
+          "name": "x-user-roles",
+          "value": "[\"reader\",\"reporter\"]"
+        }
+      ],
+      "signature_input": "outgatecall=(\"@method\" \"@authority\" \"@path\" \"@query\" \"x-outgate-caller-service\" \"x-outgate-target-service\" \"x-outgate-context-headers\" \"x-outgate-expected-route-revision\" \"x-user-id\" \"x-user-roles\");created=1700000000;expires=1700000060;nonce=\"AQEBAQEBAQEBAQEBAQEBAQ\";keyid=\"test-key\";alg=\"hmac-sha256\"",
+      "signature_base": "\"@method\": GET\n\"@authority\": gateway.example.com:9443\n\"@path\": /api/v2/%D0%BE%D1%82%D1%87%D1%91%D1%82\n\"@query\": ?q=a%2Bb&tag=x&tag=y\n\"x-outgate-caller-service\": my-service\n\"x-outgate-target-service\": reports-service\n\"x-outgate-context-headers\": [\"x-user-id\",\"x-user-roles\"]\n\"x-outgate-expected-route-revision\": 7\n\"x-user-id\": user-1\n\"x-user-roles\": [\"reader\",\"reporter\"]\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\" \"x-outgate-caller-service\" \"x-outgate-target-service\" \"x-outgate-context-headers\" \"x-outgate-expected-route-revision\" \"x-user-id\" \"x-user-roles\");created=1700000000;expires=1700000060;nonce=\"AQEBAQEBAQEBAQEBAQEBAQ\";keyid=\"test-key\";alg=\"hmac-sha256\"",
+      "hmac_hex": "c3fb766a43653b1644b163e2f1d7bade83a3702fd2bcbe3c5133661dad510aa6",
+      "signature": "outgatecall=:w/t2akNlOxZEsWPi8de63oOjcC/SvL48UTNmHa1RCqY=:",
+      "negative_replace": {
+        "field": "@path",
+        "value": "/api/v2/other"
+      }
+    },
+    {
+      "name": "production-background-http3",
+      "production": true,
+      "user": false,
+      "label": "outgategateway",
+      "transport": "http3",
+      "method": "POST",
+      "raw_request_uri": "/api/v2/reports?x=1",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "components": [
+        {
+          "name": "@method",
+          "value": "POST"
+        },
+        {
+          "name": "@authority",
+          "value": "gateway.example.com:9443"
+        },
+        {
+          "name": "@path",
+          "value": "/api/v2/reports"
+        },
+        {
+          "name": "@query",
+          "value": "?x=1"
+        },
+        {
+          "name": "x-outgate-caller-service",
+          "value": "my-service"
+        },
+        {
+          "name": "x-outgate-target-service",
+          "value": "reports-service"
+        },
+        {
+          "name": "x-outgate-context-headers",
+          "value": "[]"
+        },
+        {
+          "name": "x-outgate-expected-route-revision",
+          "value": "7"
+        },
+        {
+          "name": "x-outgate-hop-limit",
+          "value": "8"
+        },
+        {
+          "name": "x-outgate-deployment-grant-id",
+          "value": "test-grant-id"
+        },
+        {
+          "name": "x-tunnel-instance",
+          "value": "reports-1"
+        },
+        {
+          "name": "x-tunnel-version",
+          "value": "1.0.0"
+        },
+        {
+          "name": "x-forwarded-prefix",
+          "value": "/api/v2"
+        }
+      ],
+      "signature_input": "outgategateway=(\"@method\" \"@authority\" \"@path\" \"@query\" \"x-outgate-caller-service\" \"x-outgate-target-service\" \"x-outgate-context-headers\" \"x-outgate-expected-route-revision\" \"x-outgate-hop-limit\" \"x-outgate-deployment-grant-id\" \"x-tunnel-instance\" \"x-tunnel-version\" \"x-forwarded-prefix\");created=1700000000;expires=1700000060;nonce=\"AgICAgICAgICAgICAgICAg\";keyid=\"test-key\";alg=\"hmac-sha256\"",
+      "signature_base": "\"@method\": POST\n\"@authority\": gateway.example.com:9443\n\"@path\": /api/v2/reports\n\"@query\": ?x=1\n\"x-outgate-caller-service\": my-service\n\"x-outgate-target-service\": reports-service\n\"x-outgate-context-headers\": []\n\"x-outgate-expected-route-revision\": 7\n\"x-outgate-hop-limit\": 8\n\"x-outgate-deployment-grant-id\": test-grant-id\n\"x-tunnel-instance\": reports-1\n\"x-tunnel-version\": 1.0.0\n\"x-forwarded-prefix\": /api/v2\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\" \"x-outgate-caller-service\" \"x-outgate-target-service\" \"x-outgate-context-headers\" \"x-outgate-expected-route-revision\" \"x-outgate-hop-limit\" \"x-outgate-deployment-grant-id\" \"x-tunnel-instance\" \"x-tunnel-version\" \"x-forwarded-prefix\");created=1700000000;expires=1700000060;nonce=\"AgICAgICAgICAgICAgICAg\";keyid=\"test-key\";alg=\"hmac-sha256\"",
+      "hmac_hex": "7f71804743b4a19e418a15c713eafab39db5a094642c31e4ff43d8838bb1f21c",
+      "signature": "outgategateway=:f3GAR0O0oZ5BihXHE+r6s521oJRkLDHk/0PYg4ux8hw=:",
+      "negative_replace": {
+        "field": "@path",
+        "value": "/api/v2/other"
+      }
+    },
+    {
+      "name": "production-user-websocket",
+      "production": true,
+      "user": true,
+      "label": "outgategateway",
+      "transport": "http1",
+      "method": "GET",
+      "raw_request_uri": "/api/v2/ws?room=1",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "components": [
+        {
+          "name": "@method",
+          "value": "GET"
+        },
+        {
+          "name": "@authority",
+          "value": "gateway.example.com:9443"
+        },
+        {
+          "name": "@path",
+          "value": "/api/v2/ws"
+        },
+        {
+          "name": "@query",
+          "value": "?room=1"
+        },
+        {
+          "name": "x-outgate-caller-service",
+          "value": "my-service"
+        },
+        {
+          "name": "x-outgate-target-service",
+          "value": "reports-service"
+        },
+        {
+          "name": "x-outgate-context-headers",
+          "value": "[\"x-user-id\",\"x-user-roles\"]"
+        },
+        {
+          "name": "x-outgate-expected-route-revision",
+          "value": "7"
+        },
+        {
+          "name": "x-outgate-hop-limit",
+          "value": "8"
+        },
+        {
+          "name": "x-outgate-deployment-grant-id",
+          "value": "test-grant-id"
+        },
+        {
+          "name": "x-outgate-user-assertion",
+          "value": "test-only-opaque-assertion"
+        },
+        {
+          "name": "x-user-id",
+          "value": "user-1"
+        },
+        {
+          "name": "x-user-roles",
+          "value": "[\"reader\",\"reporter\"]"
+        },
+        {
+          "name": "x-tunnel-instance",
+          "value": "reports-1"
+        },
+        {
+          "name": "x-tunnel-version",
+          "value": "1.0.0"
+        },
+        {
+          "name": "x-forwarded-prefix",
+          "value": "/api/v2"
+        }
+      ],
+      "signature_input": "outgategateway=(\"@method\" \"@authority\" \"@path\" \"@query\" \"x-outgate-caller-service\" \"x-outgate-target-service\" \"x-outgate-context-headers\" \"x-outgate-expected-route-revision\" \"x-outgate-hop-limit\" \"x-outgate-deployment-grant-id\" \"x-outgate-user-assertion\" \"x-user-id\" \"x-user-roles\" \"x-tunnel-instance\" \"x-tunnel-version\" \"x-forwarded-prefix\");created=1700000000;expires=1700000060;nonce=\"AwMDAwMDAwMDAwMDAwMDAw\";keyid=\"test-key\";alg=\"hmac-sha256\"",
+      "signature_base": "\"@method\": GET\n\"@authority\": gateway.example.com:9443\n\"@path\": /api/v2/ws\n\"@query\": ?room=1\n\"x-outgate-caller-service\": my-service\n\"x-outgate-target-service\": reports-service\n\"x-outgate-context-headers\": [\"x-user-id\",\"x-user-roles\"]\n\"x-outgate-expected-route-revision\": 7\n\"x-outgate-hop-limit\": 8\n\"x-outgate-deployment-grant-id\": test-grant-id\n\"x-outgate-user-assertion\": test-only-opaque-assertion\n\"x-user-id\": user-1\n\"x-user-roles\": [\"reader\",\"reporter\"]\n\"x-tunnel-instance\": reports-1\n\"x-tunnel-version\": 1.0.0\n\"x-forwarded-prefix\": /api/v2\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\" \"x-outgate-caller-service\" \"x-outgate-target-service\" \"x-outgate-context-headers\" \"x-outgate-expected-route-revision\" \"x-outgate-hop-limit\" \"x-outgate-deployment-grant-id\" \"x-outgate-user-assertion\" \"x-user-id\" \"x-user-roles\" \"x-tunnel-instance\" \"x-tunnel-version\" \"x-forwarded-prefix\");created=1700000000;expires=1700000060;nonce=\"AwMDAwMDAwMDAwMDAwMDAw\";keyid=\"test-key\";alg=\"hmac-sha256\"",
+      "hmac_hex": "14326e71bda821d65bcf0ac4dc4d8e5a6ee936dc32a12fb95aea4c0ad9f686aa",
+      "signature": "outgategateway=:FDJucb2oIdZbzwrE3E2OWm7pNtwyoS+5WupMCtn2hqo=:",
+      "negative_replace": {
+        "field": "@path",
+        "value": "/api/v2/other"
+      }
+    }
+  ],
+  "rfc_field_combination": {
+    "field": "example-list",
+    "lines": [
+      "a",
+      "b"
+    ],
+    "canonical_value": "a, b",
+    "note": "Separate RFC field canonicalization example; duplicate Outgate identity headers are prohibited."
+  }
+}

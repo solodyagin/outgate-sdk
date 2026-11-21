@@ -1,0 +1,285 @@
+{
+  "positive": [
+    {
+      "type": "register",
+      "protocol_version": 1,
+      "protocol_minor": 0,
+      "capabilities": [
+        "streaming",
+        "cancellation",
+        "duplex_websocket",
+        "bounded_flow_control",
+        "mount_discovery"
+      ],
+      "required_capabilities": [
+        "streaming",
+        "cancellation",
+        "duplex_websocket",
+        "bounded_flow_control",
+        "mount_discovery"
+      ],
+      "service_id": "reports-service",
+      "instance_id": "reports-1",
+      "version": "1.0.0",
+      "paths": [
+        "/api/v2"
+      ],
+      "mounts": {
+        "api": "/api/v2"
+      },
+      "path_mode": "strip",
+      "rewrite_mount_headers": true,
+      "metadata": {},
+      "readiness_check_configured": true,
+      "max_concurrent_requests": 100
+    },
+    {
+      "type": "register_ack",
+      "protocol_version": 1,
+      "protocol_minor": 0,
+      "capabilities": [
+        "streaming",
+        "cancellation",
+        "duplex_websocket",
+        "bounded_flow_control",
+        "mount_discovery"
+      ],
+      "required_capabilities": [
+        "streaming",
+        "cancellation",
+        "duplex_websocket",
+        "bounded_flow_control",
+        "mount_discovery"
+      ],
+      "session_id": "AAECAwQFBgcICQoLDA0ODw",
+      "route_revision": "1",
+      "paths": [
+        {
+          "path": "/api/v2",
+          "state": "active"
+        }
+      ],
+      "limits": {
+        "max_control_bytes": 65536,
+        "max_chunk_bytes": 32768,
+        "initial_window_bytes": 65536,
+        "max_header_bytes": 32768,
+        "max_raw_uri_bytes": 8192,
+        "max_inflight": 100,
+        "buffer_bytes": 16777216
+      },
+      "timeouts": {
+        "register_ms": 10000,
+        "write_ms": 10000,
+        "cancel_ack_ms": 10000,
+        "status_interval_ms": 5000,
+        "status_stale_ms": 15000,
+        "drain_ms": 30000
+      },
+      "readiness": {
+        "required": true,
+        "interval_ms": 5000,
+        "timeout_ms": 2000,
+        "failure_threshold": 3,
+        "success_threshold": 2,
+        "stale_after_ms": 15000
+      },
+      "credential_expires_at": null,
+      "ready_not_before": 1700000120
+    },
+    {
+      "type": "register_nack",
+      "code": "duplicate_instance",
+      "detail": "Instance is still registered",
+      "retryable": true
+    },
+    {
+      "type": "request_start",
+      "stream_id": "1",
+      "method": "POST",
+      "raw_request_uri": "/api/v2/reports?limit=10",
+      "host": "gateway.example.com:9443",
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ]
+      ],
+      "response_credit": "65536"
+    },
+    {
+      "type": "response_start",
+      "stream_id": "1",
+      "status": 200,
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "set-cookie",
+          "a=1; Secure"
+        ],
+        [
+          "set-cookie",
+          "b=2; Secure"
+        ]
+      ]
+    },
+    {
+      "type": "request_end",
+      "stream_id": "1",
+      "bytes_sent": "3"
+    },
+    {
+      "type": "response_end",
+      "stream_id": "1",
+      "bytes_sent": "3"
+    },
+    {
+      "type": "cancel",
+      "stream_id": "1",
+      "cancel_id": "1",
+      "scope": "request_body",
+      "code": "request_cancelled"
+    },
+    {
+      "type": "cancel_ack",
+      "stream_id": "1",
+      "cancel_id": "1",
+      "scope": "request_body"
+    },
+    {
+      "type": "window_update",
+      "stream_id": "1",
+      "direction": "request_body",
+      "credit": "65536"
+    },
+    {
+      "type": "websocket_open",
+      "stream_id": "2",
+      "method": "GET",
+      "raw_request_uri": "/api/v2/ws",
+      "host": "gateway.example.com",
+      "headers": [
+        [
+          "upgrade",
+          "websocket"
+        ],
+        [
+          "connection",
+          "Upgrade"
+        ],
+        [
+          "sec-websocket-key",
+          "dGhlIHNhbXBsZSBub25jZQ=="
+        ],
+        [
+          "sec-websocket-version",
+          "13"
+        ]
+      ],
+      "from_handler_credit": "65536"
+    },
+    {
+      "type": "websocket_open_ack",
+      "stream_id": "2",
+      "to_handler_credit": "65536"
+    },
+    {
+      "type": "websocket_end",
+      "stream_id": "2",
+      "direction": "websocket_to_handler",
+      "bytes_sent": "180"
+    },
+    {
+      "type": "instance_status",
+      "sequence": "1",
+      "ready": false,
+      "code": "security_recovery",
+      "observed_at": 1700000000
+    },
+    {
+      "type": "drain",
+      "command_id": "1",
+      "deadline_ms": 30000,
+      "code": "server_shutdown"
+    },
+    {
+      "type": "drain_ack",
+      "command_id": "1"
+    },
+    {
+      "type": "unregister",
+      "command_id": "2",
+      "deadline_ms": 30000,
+      "code": "server_shutdown"
+    },
+    {
+      "type": "unregister_ack",
+      "command_id": "2"
+    },
+    {
+      "type": "reconnect",
+      "command_id": "3",
+      "deadline_ms": 30000,
+      "code": "server_shutdown"
+    }
+  ],
+  "negative": [
+    {
+      "name": "unknown_type",
+      "message": {
+        "type": "oops"
+      }
+    },
+    {
+      "name": "unexpected_field",
+      "message": {
+        "type": "request_end",
+        "stream_id": "1",
+        "bytes_sent": "3",
+        "secret": "no"
+      }
+    },
+    {
+      "name": "zero_stream",
+      "message": {
+        "type": "request_end",
+        "stream_id": "0",
+        "bytes_sent": "3"
+      }
+    },
+    {
+      "name": "negative_credit",
+      "message": {
+        "type": "window_update",
+        "stream_id": "1",
+        "direction": "request_body",
+        "credit": "-1"
+      }
+    },
+    {
+      "name": "ordinary_101",
+      "message": {
+        "type": "response_start",
+        "stream_id": "1",
+        "status": 101,
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "set-cookie",
+            "a=1; Secure"
+          ],
+          [
+            "set-cookie",
+            "b=2; Secure"
+          ]
+        ]
+      }
+    }
+  ]
+}

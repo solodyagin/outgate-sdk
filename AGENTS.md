@@ -1,0 +1,13 @@
+# Правила разработки Outgate SDK
+
+- Модуль — `github.com/solodyagin/outgate-sdk`, repository — https://github.com/solodyagin/outgate-sdk. Прикладной `outgateclient`, transport adapters и versioned release ещё отсутствуют.
+- Перед изменениями читайте относящиеся к задаче разделы [ТЗ](https://github.com/solodyagin/outgate/blob/main/docs/requirements.md), [протокола](https://github.com/solodyagin/outgate/blob/main/docs/protocol.md), локальную `docs/protocol.schema.json` и `docs/implementation-status.md`. Production требования имеют приоритет. После завершённого шага и перед остановкой обновляйте точку продолжения, различая текущие и предыдущие проверки.
+- Код самостоятельный: reverst imports, транзитивные зависимости, vendoring, копирование/адаптация его исходников и запуск reverst как обязательного инструмента запрещены. SDK не импортирует gateway.
+- `protocol/v1` содержит только wire types/codecs/чистые helpers; не зависит от `outgateclient`, транспортных библиотек, sockets, SQL, RBAC или хранилищ.
+- Публичные codecs не подтверждают аутентификацию, авторизацию, flow-control budget или session state. Не называйте framing полноценным adapter.
+- Production по умолчанию, fail closed: без автоматического transport/security fallback, InsecureSkipVerify, фиктивных identity и логирования credentials. Ограничивайте размеры до выделения памяти; не буферизуйте целиком HTTP body. После начала передачи запроса business retry запрещён для любого метода. Не применяйте path.Clean и повторный URI decode.
+- Не начинайте QUIC adapter до сквозного spike напрямую на quic-go: reverse HTTP/3, stream 0 exclusion, streaming/cancel, internal CONNECT, native Linux/Windows. Самодельный framing не заменяет HTTP/3.
+- Нормативные schema/fixtures принадлежат gateway repository. Локальные `docs/protocol.schema.json` и `tests/fixtures/protocol/v1/` — побайтовый snapshot (см. `docs/contract-snapshot.md`); тесты не требуют gateway checkout. Wire-изменения синхронно обновляют ТЗ, protocol/schema, golden fixtures и тесты обоих repositories. Не исправляйте fixtures ради прохождения реализации.
+- Проверки из корня SDK: `python3 tests/fixtures/protocol/v1/verify.py`, `GOWORK=off go test -race ./...`, `GOWORK=off go vet ./...`. Для parser изменений нужны негативные/граничные тесты, golden bytes и при необходимости fuzz targets.
+- Windows compile проверяйте отдельно: `GOWORK=off GOOS=windows GOARCH=amd64 go build ./...`, для тестов `go test -c` с теми же flags и выводом в `/tmp`. Cross-compile не означает native Windows runtime-приёмку.
+- Не создавайте обязательный go.work/локальные replace. Standard-library-only части проверяются без registry (`GOPROXY=off`). Для новых dependencies фиксируйте версии, проверяйте совместимость, безопасность, лицензии и SBOM.

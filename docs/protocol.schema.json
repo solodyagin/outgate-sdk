@@ -1,0 +1,989 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://outgate.example/spec/protocol/v1/control.schema.json",
+  "title": "Outgate v1 control message",
+  "description": "Structural validation only; protocol.md defines state, byte limits, u64 overflow, permission and credit checks.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/register"
+    },
+    {
+      "$ref": "#/$defs/register_ack"
+    },
+    {
+      "$ref": "#/$defs/register_nack"
+    },
+    {
+      "$ref": "#/$defs/request_start"
+    },
+    {
+      "$ref": "#/$defs/response_start"
+    },
+    {
+      "$ref": "#/$defs/request_end"
+    },
+    {
+      "$ref": "#/$defs/response_end"
+    },
+    {
+      "$ref": "#/$defs/cancel"
+    },
+    {
+      "$ref": "#/$defs/cancel_ack"
+    },
+    {
+      "$ref": "#/$defs/window_update"
+    },
+    {
+      "$ref": "#/$defs/websocket_open"
+    },
+    {
+      "$ref": "#/$defs/websocket_open_ack"
+    },
+    {
+      "$ref": "#/$defs/websocket_end"
+    },
+    {
+      "$ref": "#/$defs/instance_status"
+    },
+    {
+      "$ref": "#/$defs/drain"
+    },
+    {
+      "$ref": "#/$defs/unregister"
+    },
+    {
+      "$ref": "#/$defs/reconnect"
+    },
+    {
+      "$ref": "#/$defs/drain_ack"
+    },
+    {
+      "$ref": "#/$defs/unregister_ack"
+    }
+  ],
+  "$defs": {
+    "u64": {
+      "type": "string",
+      "maxLength": 20,
+      "pattern": "^(0|[1-9][0-9]{0,19})$"
+    },
+    "positive_u64": {
+      "type": "string",
+      "maxLength": 20,
+      "pattern": "^[1-9][0-9]{0,19}$"
+    },
+    "id": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "code": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "detail": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "path": {
+      "type": "string",
+      "maxLength": 8192,
+      "pattern": "^/[^?#]*$"
+    },
+    "uri": {
+      "type": "string",
+      "maxLength": 8192,
+      "pattern": "^/[^#]*$"
+    },
+    "headers": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[!#$%&\\x27*+.^_`|~0-9a-z-]+$"
+          },
+          {
+            "type": "string",
+            "maxLength": 32768
+          }
+        ],
+        "items": false,
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "maxItems": 256
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 64,
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "maxItems": 32,
+      "uniqueItems": true
+    },
+    "extensions": {
+      "type": "object",
+      "maxProperties": 32
+    },
+    "metadata": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": {
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 1024
+      }
+    },
+    "mounts": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 32,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/path"
+      }
+    },
+    "direction": {
+      "enum": [
+        "request_body",
+        "response_body",
+        "websocket_to_handler",
+        "websocket_from_handler"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "request_body",
+        "response_body",
+        "all"
+      ]
+    },
+    "register": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "register"
+        },
+        "protocol_version": {
+          "const": 1
+        },
+        "protocol_minor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities"
+        },
+        "required_capabilities": {
+          "$ref": "#/$defs/capabilities"
+        },
+        "service_id": {
+          "$ref": "#/$defs/id"
+        },
+        "instance_id": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "mounts": {
+          "$ref": "#/$defs/mounts"
+        },
+        "path_mode": {
+          "enum": [
+            "preserve",
+            "strip"
+          ]
+        },
+        "rewrite_mount_headers": {
+          "type": "boolean"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "readiness_check_configured": {
+          "type": "boolean"
+        },
+        "max_concurrent_requests": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "credential_generation": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "protocol_version",
+        "protocol_minor",
+        "capabilities",
+        "required_capabilities",
+        "service_id",
+        "instance_id",
+        "version",
+        "paths",
+        "path_mode",
+        "rewrite_mount_headers",
+        "readiness_check_configured",
+        "max_concurrent_requests"
+      ],
+      "additionalProperties": false
+    },
+    "register_ack": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "register_ack"
+        },
+        "protocol_version": {
+          "const": 1
+        },
+        "protocol_minor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities"
+        },
+        "required_capabilities": {
+          "$ref": "#/$defs/capabilities"
+        },
+        "session_id": {
+          "type": "string",
+          "maxLength": 22,
+          "pattern": "^[A-Za-z0-9_-]{22}$"
+        },
+        "route_revision": {
+          "$ref": "#/$defs/u64"
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/path"
+              },
+              "state": {
+                "enum": [
+                  "active",
+                  "pending",
+                  "retired"
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "max_control_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65536
+            },
+            "max_chunk_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32768
+            },
+            "initial_window_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65536
+            },
+            "max_header_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32768
+            },
+            "max_raw_uri_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8192
+            },
+            "max_inflight": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "buffer_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16777216
+            }
+          },
+          "required": [
+            "max_control_bytes",
+            "max_chunk_bytes",
+            "initial_window_bytes",
+            "max_header_bytes",
+            "max_raw_uri_bytes",
+            "max_inflight",
+            "buffer_bytes"
+          ],
+          "additionalProperties": false
+        },
+        "timeouts": {
+          "type": "object",
+          "properties": {
+            "register_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "write_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "cancel_ack_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "status_interval_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "status_stale_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "drain_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            }
+          },
+          "required": [
+            "register_ms",
+            "write_ms",
+            "cancel_ack_ms",
+            "status_interval_ms",
+            "status_stale_ms",
+            "drain_ms"
+          ],
+          "additionalProperties": false
+        },
+        "readiness": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "boolean"
+            },
+            "interval_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "stale_after_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300000
+            },
+            "failure_threshold": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "success_threshold": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          "required": [
+            "required",
+            "interval_ms",
+            "timeout_ms",
+            "stale_after_ms",
+            "failure_threshold",
+            "success_threshold"
+          ],
+          "additionalProperties": false
+        },
+        "credential_expires_at": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 253402300799
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ready_not_before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 253402300799
+        },
+        "credential_generation": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "protocol_version",
+        "protocol_minor",
+        "capabilities",
+        "required_capabilities",
+        "session_id",
+        "route_revision",
+        "paths",
+        "limits",
+        "timeouts",
+        "readiness",
+        "credential_expires_at",
+        "ready_not_before"
+      ],
+      "additionalProperties": false
+    },
+    "register_nack": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "register_nack"
+        },
+        "code": {
+          "enum": [
+            "auth_failed",
+            "invalid_register",
+            "unsupported_protocol_version",
+            "path_forbidden",
+            "path_conflict",
+            "duplicate_instance",
+            "quota_exceeded",
+            "state_unavailable",
+            "server_shutdown"
+          ]
+        },
+        "detail": {
+          "$ref": "#/$defs/detail"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "code",
+        "detail",
+        "retryable"
+      ],
+      "additionalProperties": false
+    },
+    "request_start": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request_start"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "method": {
+          "type": "string",
+          "maxLength": 32,
+          "pattern": "^[!#$%&\\x27*+.^_`|~0-9A-Za-z-]+$"
+        },
+        "raw_request_uri": {
+          "$ref": "#/$defs/uri"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "headers": {
+          "$ref": "#/$defs/headers"
+        },
+        "response_credit": {
+          "$ref": "#/$defs/u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "method",
+        "raw_request_uri",
+        "host",
+        "headers",
+        "response_credit"
+      ],
+      "additionalProperties": false
+    },
+    "response_start": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "response_start"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 599
+        },
+        "headers": {
+          "$ref": "#/$defs/headers"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "status",
+        "headers"
+      ],
+      "additionalProperties": false
+    },
+    "request_end": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request_end"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "bytes_sent": {
+          "$ref": "#/$defs/u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "bytes_sent"
+      ],
+      "additionalProperties": false
+    },
+    "response_end": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "response_end"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "bytes_sent": {
+          "$ref": "#/$defs/u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "bytes_sent"
+      ],
+      "additionalProperties": false
+    },
+    "cancel": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "cancel"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "cancel_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "code": {
+          "$ref": "#/$defs/code"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "cancel_id",
+        "scope",
+        "code"
+      ],
+      "additionalProperties": false
+    },
+    "cancel_ack": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "cancel_ack"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "cancel_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "cancel_id",
+        "scope"
+      ],
+      "additionalProperties": false
+    },
+    "window_update": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "window_update"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "direction": {
+          "$ref": "#/$defs/direction"
+        },
+        "credit": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "direction",
+        "credit"
+      ],
+      "additionalProperties": false
+    },
+    "websocket_open": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "websocket_open"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "method": {
+          "const": "GET"
+        },
+        "raw_request_uri": {
+          "$ref": "#/$defs/uri"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "headers": {
+          "$ref": "#/$defs/headers"
+        },
+        "from_handler_credit": {
+          "$ref": "#/$defs/u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "method",
+        "raw_request_uri",
+        "host",
+        "headers",
+        "from_handler_credit"
+      ],
+      "additionalProperties": false
+    },
+    "websocket_open_ack": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "websocket_open_ack"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "to_handler_credit": {
+          "$ref": "#/$defs/u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "to_handler_credit"
+      ],
+      "additionalProperties": false
+    },
+    "websocket_end": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "websocket_end"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "direction": {
+          "enum": [
+            "websocket_to_handler",
+            "websocket_from_handler"
+          ]
+        },
+        "bytes_sent": {
+          "$ref": "#/$defs/u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "direction",
+        "bytes_sent"
+      ],
+      "additionalProperties": false
+    },
+    "instance_status": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "instance_status"
+        },
+        "sequence": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "code": {
+          "enum": [
+            "ready",
+            "initializing",
+            "dependency_unavailable",
+            "security_recovery",
+            "draining"
+          ]
+        },
+        "observed_at": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 253402300799
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "sequence",
+        "ready",
+        "code",
+        "observed_at"
+      ],
+      "additionalProperties": false
+    },
+    "drain": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "drain"
+        },
+        "command_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30000
+        },
+        "code": {
+          "$ref": "#/$defs/code"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "command_id",
+        "deadline_ms",
+        "code"
+      ],
+      "additionalProperties": false
+    },
+    "unregister": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "unregister"
+        },
+        "command_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30000
+        },
+        "code": {
+          "$ref": "#/$defs/code"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "command_id",
+        "deadline_ms",
+        "code"
+      ],
+      "additionalProperties": false
+    },
+    "reconnect": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "reconnect"
+        },
+        "command_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30000
+        },
+        "code": {
+          "$ref": "#/$defs/code"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "command_id",
+        "deadline_ms",
+        "code"
+      ],
+      "additionalProperties": false
+    },
+    "drain_ack": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "drain_ack"
+        },
+        "command_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "command_id"
+      ],
+      "additionalProperties": false
+    },
+    "unregister_ack": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "unregister_ack"
+        },
+        "command_id": {
+          "$ref": "#/$defs/positive_u64"
+        },
+        "extensions": {
+          "$ref": "#/$defs/extensions"
+        }
+      },
+      "required": [
+        "type",
+        "command_id"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
