@@ -21,6 +21,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: python tests/fixtures/protocol/v1/verify.py
+      - run: python -B -m unittest discover -s tests -p "test_check_local_paths.py"
+      - run: python -B tests/check_local_paths.py
       - run: go test ./...
         env:
           GOWORK: 'off'
