@@ -30,7 +30,7 @@ Session codecs проверяют положительные u64 sequence/comman
 
 `New(Config)` принимает роль, согласованные limits, cancel-ack deadline и предел ledger. `Apply(sender, message, now)` принимает значения wire messages/chunks; `Consume` отмечает фактическую downstream-доставку. `CheckTimeout` вызывается таймером даже без входящих frames. `Effect` задаёт discard, остановку scope, ack и освобождение stream. Все вызовы сериализует один владелец.
 
-Общая session state machine (registration/readiness/drain/reconnect), транспортные очереди и callbacks ещё не реализованы. Fixed charges внутреннего состояния не заменяют измерение памяти будущего адаптера.
+Отдельная [`sessionstate`](sessionstate/README.md) связывает регистрацию, readiness/status freshness, callback thresholds и один outstanding callback, drain/ack fences, unregister и bounded reconnect с HTTP/WS state. Время и проверенную security readiness передаёт вызывающий слой; модель не выполняет I/O, callbacks или durable registration. Транспортные очереди, фактический cleanup и thread-safe прикладной `client` ещё не реализованы. Fixed charges внутреннего состояния не заменяют измерение памяти будущего адаптера.
 
 ## Проверка
 
