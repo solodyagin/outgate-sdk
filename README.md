@@ -32,6 +32,12 @@ Session codecs проверяют положительные u64 sequence/comman
 
 Отдельная [`sessionstate`](sessionstate/README.md) связывает регистрацию, readiness/status freshness, callback thresholds и один outstanding callback, drain/ack fences, unregister и bounded reconnect с HTTP/WS state. Время и проверенную security readiness передаёт вызывающий слой; модель не выполняет I/O, callbacks или durable registration. Транспортные очереди, фактический cleanup и thread-safe прикладной `client` ещё не реализованы. Fixed charges внутреннего состояния не заменяют измерение памяти будущего адаптера.
 
+## HTTP signatures и replay interface
+
+Пакет [`httpsig`](httpsig/README.md) реализует фиксированный Outgate RFC 9421 HMAC-SHA256 профиль: два legs, exact component coverage/order, bounded Structured Fields/HTTP metadata/context, nonce generation и временное окно. Все 4 существующих signature vectors проверяются на Go без изменения corpus. Scheme задаётся явно; authority нормализуется по RFC, исходный публичный URI и query сохраняются. Body API не принимает и не читает.
+
+Production включён по умолчанию. Sign возвращает signature headers; Verify подтверждает только profile/HMAC/time и не создаёт trusted user context. После внешних transport/grant/JWT/route/delegation/revision/instance checks отдельный Verified.Reserve атомарно резервирует nonce через ReplayStore перед dispatch. Durable SQL backend/recovery, JWT/context semantic equality, HTTP adapters и production security integration ещё не реализованы; volatile fallback отсутствует.
+
 ## Проверка
 
 Нужны Go 1.27.4 и Python 3.12+. Внешних Go dependencies нет; `go.sum` не требуется. Gateway checkout не нужен: тесты используют локальные schema/fixtures ([происхождение snapshot](docs/contract-snapshot.md)).
