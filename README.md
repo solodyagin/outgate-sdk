@@ -1,6 +1,6 @@
 # Outgate SDK: начало реализации
 
-Самостоятельный модуль `github.com/solodyagin/outgate-sdk`: [solodyagin/outgate-sdk](https://github.com/solodyagin/outgate-sdk). Прикладной `outgateclient`, transport adapters и versioned release ещё отсутствуют.
+Самостоятельный модуль `github.com/solodyagin/outgate-sdk`: [solodyagin/outgate-sdk](https://github.com/solodyagin/outgate-sdk). Прикладной `client`, transport adapters и versioned release ещё отсутствуют.
 
 `protocol/v1` предоставляет:
 
