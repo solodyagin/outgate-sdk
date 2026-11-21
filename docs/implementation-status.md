@@ -4,18 +4,30 @@
 
 ## Точка продолжения
 
-- **Текущая задача:** правила публикации локальных путей и автономная CI-проверка распространены на SDK; следующая задача — модели `request_start`/`response_start` с проверками headers/URI.
-- **Завершённые шаги:** добавлены правила публикации путей в AGENTS.md, автономный Python scanner и его тесты, шаги Linux/Windows CI. Конкретный временный путь в отчёте заменён описанием назначения каталога. История Git сохранена. Ранее Go-код, README и AGENTS перенесены из gateway; module path — `github.com/solodyagin/outgate-sdk`. Добавлены автономный Linux/Windows CI и локальный snapshot schema/fixtures; тесты используют только этот checkout. Production Go-файлы не менялись. Wire-контракт и golden bytes сохранены.
-- **Незавершённая работа:** удалённый запуск новой проверки и её native Windows runtime ещё не подтверждены. Перенос ещё не отправлен в remote. Остальные 16 control messages, headers/URI, state machines, Go signatures/replay, transport adapters и `outgateclient` отсутствуют; versioned release не выпущен. Codecs/unit tests не означают готовность adapter или завершённую приёмку.
-- **Проверки текущей сессии (2026-11-21):** При подготовке коммита повторно прошли 5 unit tests, fixture verifier и `git diff --check`. Проверка домашних путей в отслеживаемых файлах и отдельно в новых Python-файлах, 5 unit tests, fixture verifier в SDK/gateway и `git diff --check` — PASS на Linux. `GOWORK=off GOPROXY=off go test -race ./...` и `go vet ./...` с отдельным временным GOCACHE — PASS. Scanner и его тесты побайтово совпадают с gateway; schema/fixtures также побайтово сверены с gateway — PASS. Go-код и wire-контракт не менялись. Удалённый CI, Windows compile и native Windows runtime в этой сессии не выполнялись. Предыдущие результаты выделены ниже.
-- **Блокеры:** для следующих control messages не выявлены. QUIC adapter заблокирован до обязательного собственного quic-go spike с reverse HTTP/3, stream 0 exclusion, streaming/cancel, internal CONNECT и native Linux/Windows.
-- **Следующее действие:** прочитать относящиеся разделы ТЗ/protocol в gateway, локальные schema/fixtures и реализовать `request_start`/`response_start` с semantic validation, негативными/граничными и golden tests. Изменения wire-контракта согласовывать в обоих repositories.
+- **Текущая задача:** завершён проверяемый шаг этапа 1 — SDK codecs `request_start`/`response_start` и проверки HTTP-метаданных; следующий шаг — завершение stream control messages.
+- **Завершённые шаги:** в отдельном SDK добавлены wire models, строгий decode обязательных/неизвестных/null/case полей, точная форма header pairs, сохранение повторений, HTTP token/value validation, Host и escaped URI без повторной сериализации, запрет ordinary hop-by-hop полей и неоднозначных Content-Length. Добавлены golden round trips, негативные/граничные тесты и два fuzz targets. Нормативные schema/fixtures и их SDK snapshot не изменены. Ранее реализованы register/ack/nack, выделен SDK и добавлена CI-проверка локальных путей.
+- **Незавершённая работа:** остальные 14 control messages, session state machines, negotiated limits/budget и полный размер сериализованного HTTP header block, body/Content-Length accounting, Go signatures/replay, transport adapters и `outgateclient`. Versioned SDK release и boilerplate в отдельном template repository отсутствуют. Remote CI и native Windows runtime не подтверждены. Codecs не означают завершённую приёмку этапа.
+- **Проверки текущей сессии (2026-11-21):** см. раздел «Проверки HTTP start» ниже; предыдущие результаты других шагов остаются в существующих разделах.
+- **Блокеры:** для следующих control messages не выявлены. До QUIC adapter требуется собственный сквозной quic-go spike по ТЗ 2.3 с native Linux/Windows. Template tunnel integration требует `outgateclient` и SDK release.
+- **Следующее действие:** сопоставить нормативные protocol/schema/fixtures и реализовать `request_end`/`response_end`, `window_update`, `cancel`/`cancel_ack`; затем добавить проверяемую stream state machine с credit overflow, ранним ответом, независимыми EOF и cancel races. Не подменять session/budget проверки codecs.
 
 ## Реализовано
 
-`protocol/v1` содержит U64 decimal strings, bounded JSON с UTF-8/depth/duplicate-key проверками, QUIC bootstrap/control framing, WSS chunks, register/ack/nack codecs и semantic validation, сверку ack с register, нормализацию prefixes и однократное декодирование route path. Пакет использует только standard library и не содержит gateway logic, sockets, SQL или RBAC. Проверки credentials, session state, budget, routing atomicity, сетевой совместимости и production security не реализованы.
+`protocol/v1` содержит U64 decimal strings, bounded JSON с UTF-8/depth/duplicate-key проверками, QUIC bootstrap/control framing, WSS chunks, register/ack/nack и request_start/response_start codecs и semantic validation, сверку ack с register, нормализацию prefixes и однократное декодирование route path. Пакет использует только standard library и не содержит gateway logic, sockets, SQL или RBAC. Проверки credentials, session state, budget, routing atomicity, сетевой совместимости и production security не реализованы.
 
 Go 1.27.4; wire major 1 / minor 0. Minimum Go/backward compatibility и SDK/gateway N/previous-minor integration ещё не исследованы. Transport/storage dependencies и release SBOM ещё не выбраны/сформированы.
+
+## Проверки HTTP start
+
+Текущая сессия 2026-11-21, Linux amd64 / Go 1.27.4:
+
+- SDK: `GOWORK=off GOPROXY=off go test ./...`, `go test -race ./...` и `go vet ./...` с теми же flags и отдельным временным GOCACHE — PASS. Внешние dependencies не добавлены.
+- Golden request_start/response_start сохраняют все поля и порядок headers; negative fixture ordinary_101 отклоняется. Проверены missing/null/type/case/unknown fields, точные пары headers, JSON/extensions, stream ID/u64, method/Host/URI, HTTP token/CTL/hop-by-hop, Content-Length, byte/count/status границы. Оба новых decoder fuzz targets по 5 секунд — PASS; это короткий smoke fuzz, не release acceptance.
+- Windows amd64: `go build ./...` и `go test -c` для `protocol/v1` с `GOWORK=off GOPROXY=off GOOS=windows GOARCH=amd64` — PASS. Native Windows runtime и remote CI не запускались.
+- Fixture verifier в gateway и SDK, побайтовая сверка schema/fixtures — PASS. Wire-контракт и нормативные golden bytes не менялись. Verifier не заменяет полную JSON Schema validation.
+- Проверка локальных путей и её 5 unit tests в каждом repository, отдельная проверка новых Go-файлов и `git diff --check` — PASS. При подготовке коммитов новые Go-файлы добавлены в индекс; tracked-files scanner повторно охватил их — PASS.
+
+Codecs проверяют wire/HTTP metadata, но не authentication/authorization, production Host allowlist, negotiated limits/buffer reservations, полный размер сериализованного HTTP header block, body eligibility для HEAD/204/304, EOF/Content-Length соответствие или session transitions. Эти проверки остаются у будущих adapters/state machines; транспортная приёмка не выполнена.
 
 ## Проверки выделения SDK
 

@@ -10,9 +10,10 @@
 - `ValidateControlJSON`: ограниченный JSON object, UTF-8, глубина, duplicate keys, surrogate pairs.
 - `DecodeRegister`: обязательные/неизвестные/null поля, wire- и семантические ограничения регистрации.
 - Строгие `DecodeRegisterAck`/`DecodeRegisterNack`, semantic validation и сверку ack с исходным register.
+- Строгие `DecodeRequestStart`/`DecodeResponseStart`: ordered headers, HTTP tokens, escaped URI, Host, Content-Length и запрет ordinary hop-by-hop полей.
 - Negotiation capabilities, нормализацию registration prefixes, однократное декодирование route path и segment matching.
 
-`ReadControl`/`WriteControl` проверяют только framing и общий JSON, а не schema всех сообщений. Из control messages типизированы `register`, `register_ack` и `register_nack`. Вызывающий слой отвечает за schema остальных сообщений, направления, session state, лимиты памяти/credit, mTLS/grants/permissions и deadlines. Чтение credentials не является аутентификацией.
+`ReadControl`/`WriteControl` проверяют только framing и общий JSON, а не schema всех сообщений. Из control messages типизированы `register`, `register_ack`, `register_nack`, `request_start` и `response_start`. Вызывающий слой отвечает за schema остальных сообщений, направления, session state, лимиты памяти/credit, mTLS/grants/permissions и deadlines. Чтение credentials не является аутентификацией.
 
 `DecodeChunk` возвращает payload, ссылающийся на исходный message buffer. WSS adapter обязан ограничить assembled message до allocation и не переиспользовать buffer до consumption. Wire-лимит chunk не заменяет выданный receiver credit.
 
