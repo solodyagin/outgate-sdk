@@ -12,22 +12,25 @@
 - Строгие `DecodeRegisterAck`/`DecodeRegisterNack`, semantic validation и сверку ack с исходным register.
 - Строгие `DecodeRequestStart`/`DecodeResponseStart`: ordered headers, HTTP tokens, escaped URI, Host, Content-Length и запрет ordinary hop-by-hop полей.
 - Строгие `DecodeRequestEnd`/`DecodeResponseEnd`, `DecodeWindowUpdate`, `DecodeCancel`/`DecodeCancelAck`: поля EOF, credit и отмены без проверки stream state.
+- Строгие `DecodeWebSocketOpen`/`DecodeWebSocketOpenAck`/`DecodeWebSocketEnd`: metadata с сохранением handshake headers, initial credit и directional EOF без channel state.
+- Строгие `DecodeInstanceStatus`, `DecodeDrain`/`DecodeDrainAck`, `DecodeUnregister`/`DecodeUnregisterAck`, `DecodeReconnect`: readiness fields, command IDs/deadlines и acknowledgement без session state.
 - Negotiation capabilities, нормализацию registration prefixes, однократное декодирование route path и segment matching.
 
-`ReadControl`/`WriteControl` проверяют только framing и общий JSON, а не schema всех сообщений. Из 19 control messages типизированы 10: `register`, `register_ack`, `register_nack`, `request_start`, `response_start`, `request_end`, `response_end`, `window_update`, `cancel` и `cancel_ack`. Вызывающий слой отвечает за schema остальных сообщений, направления, session state, лимиты памяти/credit, mTLS/grants/permissions и deadlines. Stream codecs не проверяют накопление/overflow credit, резервирование budget, соответствие bytes_sent chunks/Content-Length, монотонность cancel IDs, соответствие ack ledger или порядок EOF/cancel. Чтение credentials не является аутентификацией.
+`ReadControl`/`WriteControl` проверяют только framing и общий JSON, а не schema всех сообщений. Все 19 control messages имеют типизированные codecs и Validate: register/ack/nack; request/response start/end; window_update; cancel/ack; websocket_open/open_ack/end; instance_status; drain/ack; unregister/ack; reconnect. Вызывающий слой выбирает codec по type и отвечает за направления, session state, лимиты памяти/credit, mTLS/grants/permissions и deadlines. Stream codecs не проверяют накопление/overflow credit, резервирование budget, соответствие bytes_sent chunks/Content-Length, монотонность cancel IDs, соответствие ack ledger или порядок EOF/cancel. Чтение credentials не является аутентификацией.
 
 `DecodeChunk` возвращает payload, ссылающийся на исходный message buffer. WSS adapter обязан ограничить assembled message до allocation и не переиспользовать buffer до consumption. Wire-лимит chunk не заменяет выданный receiver credit.
 
 Пакеты не открывают sockets и не содержат SQL, registry, RBAC или gateway dependencies.
 
-## HTTP state machine WSS
+Session codecs проверяют положительные u64 sequence/command_id, observed_at 0…253402300799, boolean ready, закрытый status code enum, deadline_ms 1…30000 и формат command code. Они не проверяют рост sequence, freshness/security readiness, уникальность command_id, соответствие ack, starts fence или действующий deadline; для этого нужна session state machine. Команды не выполняют I/O и не запускают reconnect.
 
-Отдельный пакет [`wssstate`](wssstate/README.md) проверяет ordinary HTTP start/body/end, credit и локальные receive reservations, Content-Length, HEAD/204/304, ранний ответ и cancel/ack races. Пакет `protocol/v1` остаётся stateless. State machine применяется после регистрации и не является transport adapter.
+## HTTP/WebSocket state machine WSS
+
+Отдельный пакет [`wssstate`](wssstate/README.md) проверяет HTTP и WebSocket channel start/body/end с общими ID/budget, отказом до open_ack, credit и локальные receive reservations, Content-Length, HEAD/204/304, ранний ответ, независимые EOF с handshake bytes и cancel/ack races. Inner HTTP handshake и его metadata проверяет будущий adapter. Пакет `protocol/v1` остаётся stateless. State machine применяется после регистрации и не является transport adapter.
 
 `New(Config)` принимает роль, согласованные limits, cancel-ack deadline и предел ledger. `Apply(sender, message, now)` принимает значения wire messages/chunks; `Consume` отмечает фактическую downstream-доставку. `CheckTimeout` вызывается таймером даже без входящих frames. `Effect` задаёт discard, остановку scope, ack и освобождение stream. Все вызовы сериализует один владелец.
 
-Пока поддерживаются только HTTP streams: WebSocket channels, общая session state machine (registration/readiness/drain/reconnect), транспортные очереди и callbacks ещё не реализованы. На mixed HTTP/WebSocket session helper применять нельзя до общего watermark/budget. Fixed charges внутреннего состояния не заменяют измерение памяти будущего адаптера.
-
+Общая session state machine (registration/readiness/drain/reconnect), транспортные очереди и callbacks ещё не реализованы. Fixed charges внутреннего состояния не заменяют измерение памяти будущего адаптера.
 
 ## Проверка
 

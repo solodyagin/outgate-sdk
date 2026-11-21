@@ -1,11 +1,11 @@
-# HTTP stream state для WSS
+# HTTP/WebSocket state для WSS
 
-`wssstate` — чистая проверяемая модель ordinary HTTP streams по protocol §6. Wire types импортируются из `protocol/v1`. Пакет не открывает соединения, не вызывает handler и не создаёт goroutines. Он не реализует регистрацию, readiness, drain, WebSocket channels или QUIC.
+`wssstate` — чистая проверяемая модель HTTP streams и application WebSocket byte channels по protocol §6–7. Wire types импортируются из `protocol/v1`. Пакет не открывает соединения, не вызывает handler и не создаёт goroutines. Он не реализует регистрацию, readiness, drain, inner HTTP handshake или QUIC.
 
 ## Подключение будущего адаптера
 
 1. После проверенной регистрации создать `New(Config)` с локальной ролью `Gateway`/`Service`, согласованными `RegisterAckLimits`, `CancelAckTimeout` из ack и `MaxPendingCancels` ≤2048. Параметры обязательны; неявного security/transport fallback нет.
-2. Передавать в `Apply(sender, message, now)` значения `RequestStart`, `ResponseStart`, `RequestEnd`, `ResponseEnd`, `WindowUpdate`, `Cancel`, `CancelAck`, `Chunk`. `sender` — роль отправителя на wire. Входящие сообщения предварительно декодировать строгими codecs; размеры assembled frames ограничивать до allocation. Исходящие применять непосредственно перед отправкой через ordered writer, после обработки отмены queued frames. После ошибки записи закрывать session; повтор business request запрещён.
+2. Передавать в `Apply(sender, message, now)` значения `RequestStart`, `ResponseStart`, `RequestEnd`, `ResponseEnd`, `WindowUpdate`, `Cancel`, `CancelAck`, `WebSocketOpen`, `WebSocketOpenAck`, `WebSocketEnd`, `Chunk`. `sender` — роль отправителя на wire. Входящие сообщения предварительно декодировать строгими codecs; размеры assembled frames ограничивать до allocation. Исходящие применять непосредственно перед отправкой через ordered writer, после обработки отмены queued frames. После ошибки записи закрывать session; повтор business request запрещён.
 3. Один владелец сериализует Apply/Consume/CheckTimeout/Stats. Передавать монотонное время; вызывать `CheckTimeout` отдельным таймером и без трафика. Достижение cancel deadline делает модель terminal; адаптер закрывает соединение. Helper не предназначен для конкурентного доступа без внешней синхронизации.
 4. `Consume(streamID, direction, bytes)` вызывать после фактической передачи downstream. Read в очередь не означает consumption. Method разрешает вернуть только потреблённый credit; первая ненулевая выдача ограничена initial_window_bytes. Request начинает с нулевого credit; response получает credit из request_start. На стороне отправителя проверяется верхняя граница возможного consumption peer, на стороне receiver — фактический Consume.
 5. Исполнить `Effect`: `Discard` запрещает доставку отменённых bytes/headers; `StopScope` отменяет context и удаляет queued data/end, а для response — ещё не отправленный response_start. Новых frames отменённого scope не формировать. Ack отправляется после уже начатого frame, через ту же ordered очередь. При обычном `Ack` сначала применить его к модели. Для `StatelessAck` записать возвращённый ack напрямую: закрытый ID не получает ledger и повторного handler вызова. `Released` позволяет удалить ресурсы stream. Helper не выполняет эти действия сам.
@@ -14,7 +14,7 @@
 
 ## Инварианты и ошибки
 
-HTTP ID выдаёт gateway от 1 без пропусков. Нормальное завершение хранит только общий watermark, без tombstones. Эта версия не принимает WebSocket IDs: mixed session требует расширить общий watermark/budget, а не создать независимые HTTP/WS счётчики.
+HTTP и WebSocket ID выдаёт gateway от 1 без пропусков в общей последовательности. Оба вида используют один admission limit, budget и cancel ledger. Нормальное завершение хранит только общий watermark, без tombstones; для закрытых IDs тип больше не хранится, late cancel проверяется общими stateless правилами.
 
 Направления имеют независимые start/EOF и byte totals. Ответ может закончиться до request_end. Payload HEAD/204/304 запрещён; их Content-Length может описывать представление без передаваемого body. Для остальных направлений end сверяется с суммой chunks и Content-Length. Несоответствие возвращает `ErrBodyLength` и StopScope=all: адаптер прерывает запрос и посылает cancel all до следующего события. Ошибочный полученный payload также списывает credit; допустимые in-flight bytes после cancel отбрасываются до ack. Ошибка длины не закрывает другие streams.
 
@@ -26,6 +26,16 @@ Credit складывается с остатком с проверкой overfl
 
 `ErrCapacity` отклоняет локальную операцию без изменения stream state. Некорректный локальный frame также не применяется. Ошибочный frame от peer (кроме изолируемой ошибки длины) делает session terminal: продолжение запрещено. Вызов с убывающим/нулевым временем и истечение deadline также terminal. Возвращаемые ошибки не содержат peer-controlled строк или credentials.
 
+## Application WebSocket
+
+`websocket_open` резервирует from-handler credit, `websocket_open_ack` — to-handler credit; оба начальных окна могут быть 0 и ограничены initial_window_bytes и локальным receive budget. До ack запрещены chunks/end/window_update. После ack допускаются только kind 3/4 и WebSocket directions, включая Consume. HTTP и WebSocket kind/direction нельзя смешивать на одном ID. Последующие window_update требуют фактического consumption на receiver; bytes_sent включает все raw bytes, включая inner handshake. EOF независимы, освобождение ждёт оба направления и consumption локального буфера.
+
+До ack Service может выбрать отказ через response_start с обычным HTTP status (200–599, без 101), затем обычные response body/end с Content-Length. Request body/end для такого ID отсутствуют; response_end и consumption освобождают channel. После этого выбора open_ack запрещён. После ack response_start запрещён: HTTP response передаётся только внутри raw byte channel.
+
+Cancel для открываемого/открытого/отклонённого WebSocket допускает только scope=all. Общие правила bounded in-flight credit, duplicate cancels, двух ack при simultaneous cancel и deadlines сохраняются. Пересекающий исходящий cancel входящий open_ack/response_start помечается Discard; adapter не должен создавать handler/channel по отброшенному событию. Все выданные receive reservations сохраняются до ordered fence/ack.
+
+Модель не парсит inner HTTP и не хранит open metadata: будущий adapter обязан проверить равенство inner method/URI/Host/headers, ограничить handshake headers и deadline, переслать внешний 101 только после inner 101, сохранить прочитанные вместе с headers bytes и обработать non-101 body. Half-close не заменяет application Close frame. Аутентификация, actual handler cleanup и transport fairness здесь не реализованы.
+
 ## Проверки
 
-Table-driven сценарии покрывают обе роли, независимые EOF, early response, consumption, overflow, ограничения admission/budget/ledger, отмены в обе стороны и одновременно, in-flight bytes/headers/window_update, late cancel, duplicate/mismatched ack и fake-clock deadline. `FuzzHTTPStreamLifecycle` проверяет жизненные циклы, возврат credit и освобождение динамических receive reservations. Это unit/model-проверки; они не подтверждают transport compatibility, очереди и callbacks либо native Windows runtime.
+Table-driven сценарии покрывают обе роли, независимые EOF, early response, consumption, overflow, ограничения admission/budget/ledger, отмены в обе стороны и одновременно, in-flight bytes/headers/window_update, late cancel, duplicate/mismatched ack и fake-clock deadline. Новые сценарии проверяют mixed IDs/budget/admission, отказ до ack, zero credit, handshake totals, независимые EOF, запрет смешивания kind/direction и отмены с пересекающим open_ack. `FuzzMixedStreamLifecycle` чередует HTTP, WebSocket, отказ и cancel для обеих ролей. `FuzzHTTPStreamLifecycle` проверяет жизненные циклы, возврат credit и освобождение динамических receive reservations. Это unit/model-проверки; они не подтверждают transport compatibility, очереди и callbacks либо native Windows runtime.

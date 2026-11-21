@@ -15,6 +15,24 @@ type streamControlMessage interface{ Validate() error }
 
 func decodeStreamMessage(name string, b []byte) (streamControlMessage, error) {
 	switch name {
+	case "instance_status":
+		return DecodeInstanceStatus(b)
+	case "drain":
+		return DecodeDrain(b)
+	case "drain_ack":
+		return DecodeDrainAck(b)
+	case "unregister":
+		return DecodeUnregister(b)
+	case "unregister_ack":
+		return DecodeUnregisterAck(b)
+	case "reconnect":
+		return DecodeReconnect(b)
+	case "websocket_open":
+		return DecodeWebSocketOpen(b)
+	case "websocket_open_ack":
+		return DecodeWebSocketOpenAck(b)
+	case "websocket_end":
+		return DecodeWebSocketEnd(b)
 	case "request_end":
 		return DecodeRequestEnd(b)
 	case "response_end":
@@ -30,7 +48,7 @@ func decodeStreamMessage(name string, b []byte) (streamControlMessage, error) {
 	}
 }
 
-var streamMessageNames = []string{"request_end", "response_end", "window_update", "cancel", "cancel_ack"}
+var streamMessageNames = []string{"request_end", "response_end", "window_update", "cancel", "cancel_ack", "websocket_open", "websocket_open_ack", "websocket_end", "instance_status", "drain", "drain_ack", "unregister", "unregister_ack", "reconnect"}
 
 func TestStreamControlGolden(t *testing.T) {
 	fixtures := responseFixtures(t)
@@ -98,6 +116,9 @@ func TestStreamControlStrict(t *testing.T) {
 							m[field] = nil
 						case "type":
 							m[field] = true
+							if field == "ready" {
+								m[field] = "true"
+							}
 						case "case", "alias":
 							m[strings.ToUpper(field)] = m[field]
 							if mutation == "case" {
@@ -167,7 +188,7 @@ func TestStreamControlU64(t *testing.T) {
 	fixtures := responseFixtures(t)
 	for _, name := range streamMessageNames {
 		for field := range responseFields(t, fixtures[name]) {
-			if field != "stream_id" && field != "cancel_id" && field != "credit" && field != "bytes_sent" {
+			if field != "command_id" && field != "sequence" && field != "stream_id" && field != "cancel_id" && field != "credit" && field != "bytes_sent" && field != "from_handler_credit" && field != "to_handler_credit" {
 				continue
 			}
 			t.Run(name+"/"+field, func(t *testing.T) {
@@ -175,7 +196,7 @@ func TestStreamControlU64(t *testing.T) {
 					m := responseFields(t, fixtures[name])
 					m[field] = json.RawMessage(raw)
 					r, err := decodeStreamMessage(name, responseBytes(t, m))
-					valid := raw == `"1"` || raw == `"18446744073709551615"` || raw == `"0"` && field == "bytes_sent"
+					valid := raw == `"1"` || raw == `"18446744073709551615"` || raw == `"0"` && (field == "bytes_sent" || field == "from_handler_credit" || field == "to_handler_credit")
 					if valid {
 						if err != nil || r.Validate() != nil {
 							t.Fatalf("rejected %s", raw)
@@ -235,12 +256,20 @@ func TestStreamControlConstructed(t *testing.T) {
 		WindowUpdate{Type: "window_update", StreamID: 1, Direction: "request_body", Credit: max},
 		Cancel{Type: "cancel", StreamID: 1, CancelID: max, Scope: "all", Code: "custom"},
 		CancelAck{Type: "cancel_ack", StreamID: 1, CancelID: 1, Scope: "response_body"},
+		WebSocketOpen{Type: "websocket_open", StreamID: 1, Method: "GET", RawRequestURI: "/ws", Host: "example.com", Headers: []Header{}, FromHandlerCredit: max},
+		WebSocketOpenAck{Type: "websocket_open_ack", StreamID: max, ToHandlerCredit: max},
+		WebSocketEnd{Type: "websocket_end", StreamID: 1, Direction: "websocket_from_handler", BytesSent: max},
+		InstanceStatus{Type: "instance_status", Sequence: max, Ready: false, Code: "security_recovery", ObservedAt: maxTimestamp},
+		Drain{Type: "drain", CommandID: max, DeadlineMS: 30000, Code: "shutdown"},
+		Unregister{Type: "unregister", CommandID: 1, DeadlineMS: 1, Code: "shutdown"},
+		Reconnect{Type: "reconnect", CommandID: 1, DeadlineMS: 1, Code: "credential_rotation"},
+		DrainAck{Type: "drain_ack", CommandID: max}, UnregisterAck{Type: "unregister_ack", CommandID: 1},
 	} {
 		if err := r.Validate(); err != nil {
 			t.Fatal("valid constructed", err)
 		}
 		original := reflect.ValueOf(r)
-		for _, field := range []string{"Type", "StreamID", "CancelID", "Direction", "Credit", "Scope", "Code"} {
+		for _, field := range []string{"Type", "StreamID", "CancelID", "Direction", "Credit", "Scope", "Code", "Method", "RawRequestURI", "Host", "Headers", "CommandID", "Sequence", "DeadlineMS"} {
 			if !original.FieldByName(field).IsValid() {
 				continue
 			}
@@ -302,3 +331,7 @@ func FuzzDecodeResponseEnd(f *testing.F)  { fuzzStreamControl(f, "response_end")
 func FuzzDecodeWindowUpdate(f *testing.F) { fuzzStreamControl(f, "window_update") }
 func FuzzDecodeCancel(f *testing.F)       { fuzzStreamControl(f, "cancel") }
 func FuzzDecodeCancelAck(f *testing.F)    { fuzzStreamControl(f, "cancel_ack") }
+
+func FuzzDecodeWebSocketOpen(f *testing.F)    { fuzzStreamControl(f, "websocket_open") }
+func FuzzDecodeWebSocketOpenAck(f *testing.F) { fuzzStreamControl(f, "websocket_open_ack") }
+func FuzzDecodeWebSocketEnd(f *testing.F)     { fuzzStreamControl(f, "websocket_end") }

@@ -1,7 +1,7 @@
-// Package wssstate checks ordinary HTTP stream transitions in a registered WSS
+// Package wssstate checks HTTP streams and application WebSocket byte channels in a registered WSS
 // session. It performs no I/O, queues, clocks, callbacks or authentication.
 // A State has one owner; callers serialize all methods at frame boundaries.
-// Application WebSocket channels and session registration/drain are not implemented.
+// Session registration/drain and inner HTTP handshakes are not implemented.
 package wssstate
 
 import (
@@ -81,7 +81,17 @@ type body struct {
 	length                                                  uint64
 	hasLength                                               bool
 }
+type channelPhase uint8
+
+const (
+	ordinaryHTTP channelPhase = iota
+	awaitingOpenAck
+	byteChannel
+	refusedChannel
+)
+
 type stream struct {
+	phase   channelPhase
 	head    bool
 	fault   bool
 	bodies  [2]body
@@ -98,8 +108,8 @@ type cancellation struct {
 	deadline time.Time
 }
 
-// State tracks only HTTP IDs; do not use it on a mixed HTTP/WebSocket session
-// until WebSocket transitions share the same opened watermark and budget.
+// State shares one opened watermark, admission limit, budget and cancel ledger
+// across HTTP streams and application WebSocket channels.
 type State struct {
 	config           Config
 	streams          map[uint64]stream
@@ -205,23 +215,24 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 			return s.fail(from, ErrProtocol)
 		}
 		id = uint64(m.StreamID)
-		if s.opened == math.MaxUint64 || id != s.opened+1 {
-			return s.fail(from, ErrProtocol)
-		}
-		if len(s.streams) >= s.config.Limits.MaxInflight || len(s.cancels) >= s.config.MaxPendingCancels {
-			return s.fail(from, ErrCapacity)
-		}
 		st := stream{head: m.Method == "HEAD"}
 		st.bodies[Gateway].started = true
 		st.bodies[Gateway].length, st.bodies[Gateway].hasLength = contentLength(m.Headers)
 		st.bodies[Service].credit = uint64(m.ResponseCredit)
 		st.bodies[Service].granted = m.ResponseCredit > 0
-		effect, err := s.commit(id, st, 0)
-		if err != nil {
-			return s.fail(from, err)
+		return s.open(from, id, st)
+	case v1.WebSocketOpen:
+		if from != Gateway || m.Validate() != nil || uint64(m.FromHandlerCredit) > uint64(s.config.Limits.InitialWindowBytes) || len(m.RawRequestURI) > s.config.Limits.MaxRawURIBytes || !s.headersFit(m.Headers, m.Host) || !s.controlFits(m) {
+			return s.fail(from, ErrProtocol)
 		}
-		s.opened = id
-		return effect, nil
+		st := stream{phase: awaitingOpenAck}
+		st.bodies[Service].credit = uint64(m.FromHandlerCredit)
+		st.bodies[Service].granted = m.FromHandlerCredit > 0
+		return s.open(from, uint64(m.StreamID), st)
+	case v1.WebSocketOpenAck:
+		id = uint64(m.StreamID)
+	case v1.WebSocketEnd:
+		id = uint64(m.StreamID)
 	case v1.ResponseStart:
 		id = uint64(m.StreamID)
 	case v1.RequestEnd:
@@ -259,7 +270,7 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 	if st.fault {
 		switch message.(type) {
 		case v1.Cancel, v1.CancelAck:
-		case v1.Chunk, v1.RequestEnd, v1.ResponseEnd, v1.ResponseStart:
+		case v1.Chunk, v1.RequestEnd, v1.ResponseEnd, v1.ResponseStart, v1.WebSocketEnd, v1.WebSocketOpenAck:
 			if !st.bodies[0].cancelling || !st.bodies[1].cancelling {
 				return Effect{}, ErrBodyLength
 			}
@@ -271,10 +282,32 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 	var addKey, removeKey *cancelKey
 	var addCancel cancellation
 	switch m := message.(type) {
+	case v1.WebSocketOpenAck:
+		if from != Service || m.Validate() != nil || !s.controlFits(m) || st.phase != awaitingOpenAck || st.bodies[Service].blocked || uint64(m.ToHandlerCredit) > uint64(s.config.Limits.InitialWindowBytes) {
+			return s.fail(from, ErrProtocol)
+		}
+		st.phase = byteChannel
+		st.bodies[Gateway].started = true
+		st.bodies[Service].started = true
+		st.bodies[Gateway].credit = uint64(m.ToHandlerCredit)
+		st.bodies[Gateway].granted = m.ToHandlerCredit > 0
+		effect.Discard = st.bodies[Service].cancelling
+	case v1.WebSocketEnd:
+		dir, valid := st.direction(m.Direction)
+		if m.Validate() != nil || !s.controlFits(m) || st.phase != byteChannel || !valid || from != Role(dir) {
+			return s.fail(from, ErrProtocol)
+		}
+		if err := end(&st.bodies[dir], uint64(m.BytesSent)); err != nil {
+			return s.endError(from, id, st, err)
+		}
 	case v1.ResponseStart:
 		b := &st.bodies[Service]
-		if from != Service || m.Validate() != nil || !s.controlFits(m) || !s.headersFit(m.Headers, "") || b.started || b.blocked {
+		if from != Service || m.Validate() != nil || !s.controlFits(m) || !s.headersFit(m.Headers, "") || b.started || b.blocked || st.phase == byteChannel {
 			return s.fail(from, ErrProtocol)
+		}
+		if st.phase == awaitingOpenAck {
+			st.phase = refusedChannel
+			st.bodies[Gateway].ended = true
 		}
 		b.started = true
 		effect.Discard = b.cancelling
@@ -284,7 +317,7 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 		if m.Validate() != nil || !s.controlFits(m) {
 			return s.fail(from, ErrProtocol)
 		}
-		dir, valid := httpDirection(m.Direction)
+		dir, valid := st.direction(m.Direction)
 		if !valid || from == Role(dir) {
 			return s.fail(from, ErrProtocol)
 		}
@@ -308,10 +341,10 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 		}
 		b.credit += n
 	case v1.Chunk:
-		if m.Kind != v1.RequestBody && m.Kind != v1.ResponseBody || m.StreamID == 0 || len(m.Payload) == 0 || len(m.Payload) > s.config.Limits.MaxChunkBytes {
+		if !st.chunkKind(m.Kind) || m.StreamID == 0 || len(m.Payload) == 0 || len(m.Payload) > s.config.Limits.MaxChunkBytes {
 			return s.fail(from, ErrProtocol)
 		}
-		dir := int(m.Kind - v1.RequestBody)
+		dir := int((m.Kind - 1) % 2)
 		b := &st.bodies[dir]
 		n := uint64(len(m.Payload))
 		if from != Role(dir) || !b.started || b.ended || b.blocked || n > b.credit || n > math.MaxUint64-b.sent {
@@ -341,20 +374,23 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 			return Effect{StopScope: "all", Discard: true}, ErrBodyLength
 		}
 	case v1.RequestEnd:
-		if from != Gateway || m.Validate() != nil || !s.controlFits(m) {
+		if from != Gateway || m.Validate() != nil || !s.controlFits(m) || st.phase != ordinaryHTTP {
 			return s.fail(from, ErrProtocol)
 		}
 		if err := end(&st.bodies[Gateway], uint64(m.BytesSent)); err != nil {
 			return s.endError(from, id, st, err)
 		}
 	case v1.ResponseEnd:
-		if from != Service || m.Validate() != nil || !s.controlFits(m) {
+		if from != Service || m.Validate() != nil || !s.controlFits(m) || st.phase != ordinaryHTTP && st.phase != refusedChannel {
 			return s.fail(from, ErrProtocol)
 		}
 		if err := end(&st.bodies[Service], uint64(m.BytesSent)); err != nil {
 			return s.endError(from, id, st, err)
 		}
 	case v1.Cancel:
+		if st.phase != ordinaryHTTP && m.Scope != "all" {
+			return s.fail(from, ErrProtocol)
+		}
 		if m.Validate() != nil || !s.controlFits(m) {
 			return s.fail(from, ErrProtocol)
 		}
@@ -465,8 +501,8 @@ func (s *State) Consume(id uint64, direction string, n uint64) (Effect, error) {
 	if s.failed != nil {
 		return Effect{}, s.failed
 	}
-	dir, ok := httpDirection(direction)
 	st, exists := s.streams[id]
+	dir, ok := st.direction(direction)
 	if !ok || !exists || Role(dir) == s.config.Local || n == 0 || n > st.bodies[dir].buffered {
 		return Effect{}, ErrProtocol
 	}
@@ -478,6 +514,54 @@ func (s *State) Consume(id uint64, direction string, n uint64) (Effect, error) {
 	}
 	b.renewable += n
 	return s.commit(id, st, old)
+}
+
+// open admits either stream kind atomically under the shared session limits.
+func (s *State) open(from Role, id uint64, st stream) (Effect, error) {
+	if s.opened == math.MaxUint64 || id != s.opened+1 {
+		return s.fail(from, ErrProtocol)
+	}
+	if len(s.streams) >= s.config.Limits.MaxInflight || len(s.cancels) >= s.config.MaxPendingCancels {
+		return s.fail(from, ErrCapacity)
+	}
+	effect, err := s.commit(id, st, 0)
+	if err != nil {
+		return s.fail(from, err)
+	}
+	s.opened = id
+	return effect, nil
+}
+
+func (st stream) chunkKind(kind v1.ChunkKind) bool {
+	switch st.phase {
+	case ordinaryHTTP:
+		return kind == v1.RequestBody || kind == v1.ResponseBody
+	case refusedChannel:
+		return kind == v1.ResponseBody
+	case byteChannel:
+		return kind == v1.WebSocketToHandler || kind == v1.WebSocketFromHandler
+	default:
+		return false
+	}
+}
+func (st stream) direction(direction string) (int, bool) {
+	if st.phase == awaitingOpenAck {
+		return 0, false
+	}
+	if st.phase == byteChannel {
+		switch direction {
+		case "websocket_to_handler":
+			return 0, true
+		case "websocket_from_handler":
+			return 1, true
+		default:
+			return 0, false
+		}
+	}
+	if st.phase == refusedChannel && direction != "response_body" {
+		return 0, false
+	}
+	return httpDirection(direction)
 }
 func httpDirection(direction string) (int, bool) {
 	switch direction {

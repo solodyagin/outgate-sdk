@@ -89,34 +89,38 @@ func (r RequestStart) Validate() error {
 	if r.Type != "request_start" || r.StreamID == 0 || len(r.Method) > 32 || !httpToken(r.Method, false) || r.Method == http.MethodConnect || !validHTTPHost(r.Host) {
 		return ErrProtocol
 	}
+	if validateRequestURI(r.RawRequestURI) != nil || validateOrdinaryHeaders(r.Headers) != nil {
+		return ErrProtocol
+	}
+	return validateResponseJSON(r, r.Extensions)
+}
+
+func validateRequestURI(raw string) error {
 	// Bound and validate the URI before allocating a parsed representation.
-	if _, err := DecodeRoutePath(r.RawRequestURI); err != nil {
+	if _, err := DecodeRoutePath(raw); err != nil {
 		return err
 	}
 	// Parse without reserializing; retain the original escaped path/query.
-	u, err := url.ParseRequestURI(r.RawRequestURI)
-	if err != nil || u.IsAbs() || u.Host != "" || !utf8.ValidString(r.RawRequestURI) {
+	u, err := url.ParseRequestURI(raw)
+	if err != nil || u.IsAbs() || u.Host != "" || !utf8.ValidString(raw) {
 		return ErrProtocol
 	}
-	for i := 0; i < len(r.RawRequestURI); i++ {
-		c := r.RawRequestURI[i]
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
 		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("-._~!$&'()*+,;=:@/?%", rune(c))) {
 			return ErrProtocol
 		}
 		if c == '%' {
-			if i+2 >= len(r.RawRequestURI) {
+			if i+2 >= len(raw) {
 				return ErrProtocol
 			}
-			if !isHex(r.RawRequestURI[i+1]) || !isHex(r.RawRequestURI[i+2]) {
+			if !isHex(raw[i+1]) || !isHex(raw[i+2]) {
 				return ErrProtocol
 			}
 			i += 2
 		}
 	}
-	if validateOrdinaryHeaders(r.Headers) != nil {
-		return ErrProtocol
-	}
-	return validateResponseJSON(r, r.Extensions)
+	return nil
 }
 
 func (r ResponseStart) Validate() error {
@@ -181,6 +185,12 @@ func validHTTPHost(host string) bool {
 // must additionally bound their serialized HTTP header block and negotiated
 // limits before writing it. No fields are removed, merged or canonicalized.
 func validateOrdinaryHeaders(headers []Header) error {
+	return validateHTTPHeaders(headers, false)
+}
+
+// WebSocket metadata preserves Connection/Upgrade for the inner handshake.
+// Actual handshake negotiation and metadata equality require the adapter.
+func validateHTTPHeaders(headers []Header, websocket bool) error {
 	if headers == nil || len(headers) > 256 {
 		return ErrProtocol
 	}
@@ -203,7 +213,11 @@ func validateOrdinaryHeaders(headers []Header) error {
 			}
 		}
 		switch h[0] {
-		case "host", "connection", "proxy-connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authenticate", "proxy-authorization":
+		case "connection", "upgrade":
+			if !websocket {
+				return ErrProtocol
+			}
+		case "host", "proxy-connection", "keep-alive", "transfer-encoding", "te", "trailer", "proxy-authenticate", "proxy-authorization":
 			return ErrProtocol
 		case "content-length":
 			// Accept equal repeated decimal lengths without changing their bytes.
