@@ -17,7 +17,7 @@
 
 `DecodeChunk` возвращает payload, ссылающийся на исходный message buffer. WSS adapter обязан ограничить assembled message до allocation и не переиспользовать buffer до consumption. Wire-лимит chunk не заменяет выданный receiver credit.
 
-Пакет не открывает sockets и не содержит SQL, registry, RBAC или gateway dependencies. Статус реализации и точка продолжения — в [docs/implementation-status.md](docs/implementation-status.md).
+Пакет не открывает sockets и не содержит SQL, registry, RBAC или gateway dependencies.
 
 
 ## Проверка
