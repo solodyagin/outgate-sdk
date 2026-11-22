@@ -26,13 +26,16 @@ type Carrier struct {
 	writes       chan struct{}
 	messages     chan any
 	readerDone   chan struct{}
+	limits       v1.RegisterAckLimits
+	attachMu     sync.Mutex
+	attached     bool
 }
 
 func newCarrier(conn *quic.Conn, stream *quic.Stream, service bool, o Options, ack v1.RegisterAck) *Carrier {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	c := &Carrier{conn: conn, stream: stream, service: service, maximum: ack.Limits.MaxControlBytes,
 		writeTimeout: min(o.WriteTimeout, time.Duration(ack.Timeouts.WriteMS)*time.Millisecond),
-		ctx:          ctx, cancel: cancel, writes: make(chan struct{}, 1), messages: make(chan any), readerDone: make(chan struct{})}
+		ctx:          ctx, cancel: cancel, writes: make(chan struct{}, 1), messages: make(chan any), readerDone: make(chan struct{}), limits: ack.Limits}
 	go c.readLoop()
 	go func() {
 		select {
@@ -48,6 +51,22 @@ func newCarrier(conn *quic.Conn, stream *quic.Stream, service bool, o Options, a
 // input, or an interrupted write. Err then reports the terminal cause.
 func (c *Carrier) Done() <-chan struct{} { return c.ctx.Done() }
 func (c *Carrier) Err() error            { return context.Cause(c.ctx) }
+
+// ClaimHTTP3 transfers the right to attach HTTP/3 machinery exactly once. The
+// role must match this registered carrier. The caller owns transport admission,
+// HTTP security checks and cleanup; this does not establish session readiness.
+func (c *Carrier) ClaimHTTP3(service bool) (*quic.Conn, v1.RegisterAckLimits, error) {
+	c.attachMu.Lock()
+	defer c.attachMu.Unlock()
+	if err := c.Err(); err != nil {
+		return nil, v1.RegisterAckLimits{}, err
+	}
+	if c.attached || service != c.service {
+		return nil, v1.RegisterAckLimits{}, v1.ErrProtocol
+	}
+	c.attached = true
+	return c.conn, c.limits, nil
+}
 
 // Close ends the entire QUIC session, never half-closes the carrier. It unblocks
 // pending Send/Receive calls and joins the carrier reader. It is idempotent.

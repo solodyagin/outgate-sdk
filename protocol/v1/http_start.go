@@ -86,13 +86,21 @@ func DecodeResponseStart(b []byte) (ResponseStart, error) {
 }
 
 func (r RequestStart) Validate() error {
-	if r.Type != "request_start" || r.StreamID == 0 || len(r.Method) > 32 || !httpToken(r.Method, false) || r.Method == http.MethodConnect || !validHTTPHost(r.Host) {
-		return ErrProtocol
-	}
-	if validateRequestURI(r.RawRequestURI) != nil || validateOrdinaryHeaders(r.Headers) != nil {
+	if r.Type != "request_start" || r.StreamID == 0 || ValidateHTTPRequestMetadata(r.Method, r.Host, r.RawRequestURI, r.Headers) != nil {
 		return ErrProtocol
 	}
 	return validateResponseJSON(r, r.Extensions)
+}
+
+// ValidateHTTPRequestMetadata checks ordinary HTTP metadata without imposing
+// JSON serialization limits on native HTTP/3. The caller enforces negotiated
+// field-section limits and transport admission before allocation/dispatch.
+func ValidateHTTPRequestMetadata(method, host, rawURI string, headers []Header) error {
+	if len(method) > 32 || !httpToken(method, false) || method == http.MethodConnect || !validHTTPHost(host) ||
+		validateRequestURI(rawURI) != nil || validateOrdinaryHeaders(headers) != nil {
+		return ErrProtocol
+	}
+	return nil
 }
 
 func validateRequestURI(raw string) error {
@@ -124,10 +132,19 @@ func validateRequestURI(raw string) error {
 }
 
 func (r ResponseStart) Validate() error {
-	if r.Type != "response_start" || r.StreamID == 0 || r.Status < 200 || r.Status > 599 || validateOrdinaryHeaders(r.Headers) != nil {
+	if r.Type != "response_start" || r.StreamID == 0 || ValidateHTTPResponseMetadata(r.Status, r.Headers) != nil {
 		return ErrProtocol
 	}
 	return validateResponseJSON(r, r.Extensions)
+}
+
+// ValidateHTTPResponseMetadata checks final ordinary HTTP status and fields,
+// without JSON framing, body accounting, authorization or negotiated limits.
+func ValidateHTTPResponseMetadata(status int, headers []Header) error {
+	if status < 200 || status > 599 || validateOrdinaryHeaders(headers) != nil {
+		return ErrProtocol
+	}
+	return nil
 }
 
 func httpToken(s string, lower bool) bool {

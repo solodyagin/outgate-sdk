@@ -1,6 +1,6 @@
 # QUIC stream 0 carrier
 
-`quiccontrol` — первая часть QUIC adapter на закреплённой `quic-go v0.65.0`. Пакет принимает существующее соединение, выполняет bootstrap/register/ack и удерживает stream 0 для session control. HTTP/3, sockets/listener/dial, прикладной `client`, реестр и production authorization интеграция ещё не реализованы. `protocol/v1` сохраняет независимость от транспортных зависимостей.
+`quiccontrol` — bootstrap/control часть QUIC adapter на закреплённой `quic-go v0.65.0`. Пакет принимает существующее соединение, выполняет bootstrap/register/ack и удерживает stream 0 для session control. `ClaimHTTP3` передаёт connection для HTTP/3 однократно и с проверкой роли; ordinary HTTP реализован отдельно в [`quichttp`](../quichttp/README.md). Sockets/listener/dial, прикладной `client`, реестр и production authorization интеграция ещё не реализованы. `protocol/v1` сохраняет независимость от транспортных зависимостей.
 
 `Open(ctx, conn, options, credential, register)` вызывается на исходящем service connection; `Accept(ctx, conn, options, authorize)` — на gateway до подключения HTTP/3. Оба вызова требуют завершённого TLS 1.3 handshake с `outgate-tunnel/1`, без 0-RTT. Service всегда требует verified server chain; gateway по умолчанию требует verified client chain. Только явный `Options.Development` разрешает bearer и отсутствие client certificate на gateway. Production grant не подтверждается одним TLS handshake: это обязанность `Authorize`.
 

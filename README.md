@@ -1,6 +1,6 @@
 # Outgate SDK: начало реализации
 
-Самостоятельный модуль `github.com/solodyagin/outgate-sdk`: [solodyagin/outgate-sdk](https://github.com/solodyagin/outgate-sdk). Реализована первая часть QUIC adapter — bootstrap и stream 0 carrier. Прикладной `client`, полный HTTP/3/WSS adapters и versioned release ещё отсутствуют.
+Самостоятельный модуль `github.com/solodyagin/outgate-sdk`: [solodyagin/outgate-sdk](https://github.com/solodyagin/outgate-sdk). QUIC adapter включает bootstrap, stream 0 carrier и обычный streaming HTTP/3. Прикладной `client`, WebSocket/Hijacker, полный lifecycle, WSS adapter и versioned release ещё отсутствуют.
 
 `protocol/v1` предоставляет:
 
@@ -40,7 +40,9 @@ Production включён по умолчанию. Sign возвращает sig
 
 ## QUIC bootstrap
 
-[`transport/quiccontrol`](transport/quiccontrol/README.md) выполняет register/ack на stream 0 существующего quic-go connection с verified TLS 1.3, production mTLS, явным development mode и ограниченными deadlines. Gateway authorization/durable commit передаются обязательным callback. Carrier сериализует записи, ограничивает read-ahead, проверяет schema/направления session messages и закрывает connection при FIN/reset/ошибке. HTTP/3 поверх того же connection проверен loopback-тестами; полный adapter, listener/dialer, lifecycle integration и прикладной Client остаются в работе.
+[`transport/quiccontrol`](transport/quiccontrol/README.md) выполняет register/ack на stream 0 существующего quic-go connection с verified TLS 1.3, production mTLS, явным development mode и ограниченными deadlines. Gateway authorization/durable commit передаются обязательным callback. Carrier сериализует записи, ограничивает read-ahead, проверяет schema/направления session messages и закрывает connection при FIN/reset/ошибке. `ClaimHTTP3` однократно передаёт connection транспортному слою с проверкой роли.
+
+[`transport/quichttp`](transport/quichttp/README.md) подключает ordinary reverse HTTP/3: single-session RoundTripper и service server, transport request IDs, bounded admission, streaming/SSE, независимые EOF и cancellation. Native `ClientConn.RoundTrip` используется без автоматических retry/dial/redirect. Authorization/signature middleware предоставляет вызывающий слой. Listener/dialer, WebSocket/Hijacker, sessionstate/registry integration и прикладной Client остаются в работе.
 
 ## Проверка
 
