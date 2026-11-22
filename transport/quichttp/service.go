@@ -121,13 +121,10 @@ func NewService(carrier *quiccontrol.Carrier, handler http.Handler) (*Service, e
 // rejects IDs above the ceiling, and waits for actual handler cleanup. Timeout
 // never reopens admission; the lifecycle owner must then close the carrier.
 func (s *Service) Quiesce(ctx context.Context, lastID uint64) error {
-	s.gate.Lock()
-	if s.fenced && lastID > s.ceiling {
-		s.gate.Unlock()
-		return v1.ErrProtocol
+	if err := s.Fence(lastID); err != nil {
+		return err
 	}
-	s.fenced = true
-	s.ceiling = lastID
+	s.gate.Lock()
 	idle := s.idle
 	s.gate.Unlock()
 	select {
@@ -139,6 +136,22 @@ func (s *Service) Quiesce(ctx context.Context, lastID uint64) error {
 		return s.carrier.Err()
 	}
 }
+
+// Fence stops admission without waiting, so a control reader can keep processing
+// crossed commands while handlers finish. Only consume a verified negotiated G
+// quiescent marker. Quiesce additionally waits for actual handler cleanup.
+func (s *Service) Fence(lastID uint64) error {
+	s.gate.Lock()
+	defer s.gate.Unlock()
+	if s.fenced && lastID > s.ceiling {
+		return v1.ErrProtocol
+	}
+	s.fenced = true
+	s.ceiling = lastID
+	return nil
+}
+
+func (s *Service) Active() int { s.gate.Lock(); defer s.gate.Unlock(); return s.active }
 
 // Serve blocks for the connection lifetime. Only the registered reverse
 // connection is served; no TCP/UDP listener or additional dial is created.

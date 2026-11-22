@@ -90,6 +90,11 @@ type Snapshot struct {
 	ProbeOutstanding bool
 	ProbeDeadline    time.Time
 	NativeActive     int
+
+	// LocalReady is the value a Service may report now, not a published status.
+	LocalReady        bool
+	PendingDrains     int
+	UnregisterPending bool
 }
 
 type State struct {
@@ -143,6 +148,15 @@ func (s *State) Snapshot() Snapshot {
 	out.Deadline = earlier(out.Deadline, earlier(s.securityDeadline, s.expiry))
 	out.ProbeOutstanding = s.probeRunning
 	out.NativeActive = s.nativeActive
+	out.LocalReady = s.config.Local == Service && s.active && s.registered && s.phase != Draining && s.eligible(s.lastTime)
+	for _, command := range s.commands {
+		if command.kind == "drain" && !command.acked {
+			out.PendingDrains++
+		}
+		if command.kind == "unregister" {
+			out.UnregisterPending = true
+		}
+	}
 	if s.config.NativeStreams {
 		out.ReservedBytes = s.nativeReserved
 	}

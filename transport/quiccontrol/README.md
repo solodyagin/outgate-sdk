@@ -12,7 +12,7 @@ Bootstrap ограничен десятью секундами, `RegisterTimeout
 
 Пакет проверяет schema и направления status/drain/ack/unregister/reconnect, запрещает повторную регистрацию и HTTP/WSS messages на carrier. FIN/reset, invalid frame, потеря connection и прерванная запись закрывают всю session, без half-close или retry. `Done` сигнализирует вызывающему слою об исключении session и cleanup; `Close` идемпотентно закрывает connection и дожидается reader. `Err` сохраняет исходную ошибку для диагностики; произвольный текст remote QUIC errors не предназначен для публичного ответа или логирования без redaction.
 
-Session state/command ledger, readiness freshness, callbacks, security expiry/recovery, cleanup реестра и управление HTTP streams остаются во внешнем слое. Принятый ack не означает готовность или публикацию маршрута. Этот пакет не заявляет завершение этапа 2 или production security.
+`Registration()` возвращает независимые копии actual register/ack и bootstrap development profile без credential bytes. `Abort`/`Revoke` закрывают carrier с protocol/security code. Service-side session state/command ledger, readiness callbacks, expiry/recovery и HTTP cleanup подключает отдельный `transport/quicsession`; cleanup реестра остаётся у gateway. Принятый ack не означает готовность или публикацию маршрута. Этот пакет не заявляет завершение этапа 2 или production security.
 
 Проверка из корня SDK:
 

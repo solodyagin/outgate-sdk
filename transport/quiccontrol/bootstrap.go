@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	CodeNormal     quic.ApplicationErrorCode = 0x4f475400
-	CodeAuthFailed quic.ApplicationErrorCode = 0x4f475401
-	CodeProtocol   quic.ApplicationErrorCode = 0x4f475408
+	CodeNormal            quic.ApplicationErrorCode = 0x4f475400
+	CodeAuthFailed        quic.ApplicationErrorCode = 0x4f475401
+	CodeProtocol          quic.ApplicationErrorCode = 0x4f475408
+	CodeCredentialRevoked quic.ApplicationErrorCode = 0x4f47540b
 )
 
 var ErrSecurity = errors.New("outgate: unverified QUIC security profile")
@@ -156,7 +157,7 @@ func Open(ctx context.Context, conn *quic.Conn, options Options, credential []by
 	if err = ctx.Err(); err != nil {
 		return fail(err)
 	}
-	return newCarrier(conn, stream, true, o, ack), ack, nil
+	return newCarrier(conn, stream, true, o, ack, register), ack, nil
 }
 
 // Accept consumes stream 0 before the gateway attaches HTTP/3 machinery. The
@@ -235,7 +236,7 @@ func Accept(ctx context.Context, conn *quic.Conn, options Options, authorize Aut
 	if err = ctx.Err(); err != nil {
 		return fail(err)
 	}
-	return newCarrier(conn, stream, false, o, ack), nil
+	return newCarrier(conn, stream, false, o, ack, validationRegister), nil
 }
 
 func refuse(ctx context.Context, conn *quic.Conn, stream *quic.Stream, nack v1.RegisterNack) error {
@@ -275,7 +276,7 @@ func rejectionCode(code string) quic.ApplicationErrorCode {
 	case "state_unavailable":
 		return 0x4f47540a
 	case "credential_revoked":
-		return 0x4f47540b
+		return CodeCredentialRevoked
 	default:
 		return CodeProtocol
 	}

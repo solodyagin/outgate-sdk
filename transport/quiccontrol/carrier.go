@@ -29,13 +29,19 @@ type Carrier struct {
 	limits       v1.RegisterAckLimits
 	attachMu     sync.Mutex
 	attached     bool
+
+	registerJSON, ackJSON []byte
+	development           bool
 }
 
-func newCarrier(conn *quic.Conn, stream *quic.Stream, service bool, o Options, ack v1.RegisterAck) *Carrier {
+func newCarrier(conn *quic.Conn, stream *quic.Stream, service bool, o Options, ack v1.RegisterAck, register v1.Register) *Carrier {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	c := &Carrier{conn: conn, stream: stream, service: service, maximum: ack.Limits.MaxControlBytes,
 		writeTimeout: min(o.WriteTimeout, time.Duration(ack.Timeouts.WriteMS)*time.Millisecond),
 		ctx:          ctx, cancel: cancel, writes: make(chan struct{}, 1), messages: make(chan any), readerDone: make(chan struct{}), limits: ack.Limits}
+	c.registerJSON, _ = json.Marshal(register)
+	c.ackJSON, _ = json.Marshal(ack)
+	c.development = o.Development
 	go c.readLoop()
 	go func() {
 		select {
@@ -51,6 +57,29 @@ func newCarrier(conn *quic.Conn, stream *quic.Stream, service bool, o Options, a
 // input, or an interrupted write. Err then reports the terminal cause.
 func (c *Carrier) Done() <-chan struct{} { return c.ctx.Done() }
 func (c *Carrier) Err() error            { return context.Cause(c.ctx) }
+
+// Registration returns owned copies of the actual validated bootstrap messages,
+// never credentials. A lifecycle driver cannot replace negotiated expiry/limits
+// with caller-supplied metadata. HTTP attachment still checks the carrier role.
+func (c *Carrier) Registration() (v1.Register, v1.RegisterAck, bool) {
+	r, _ := v1.DecodeRegister(c.registerJSON)
+	a, _ := v1.DecodeRegisterAck(c.ackJSON)
+	return r, a, c.development
+}
+
+// Abort terminates an invalid protocol session without reflecting peer text.
+func (c *Carrier) Abort() error {
+	c.fail(v1.ErrProtocol, CodeProtocol, "protocol_error")
+	<-c.readerDone
+	return nil
+}
+
+// Revoke preempts graceful shutdown on loss of verified security readiness.
+func (c *Carrier) Revoke() error {
+	c.fail(ErrSecurity, CodeCredentialRevoked, "credential_revoked")
+	<-c.readerDone
+	return nil
+}
 
 // ClaimHTTP3 transfers the right to attach HTTP/3 machinery exactly once. The
 // role must match this registered carrier. The caller owns transport admission,
