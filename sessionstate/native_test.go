@@ -72,8 +72,12 @@ func TestNativeLeasesAndCleanup(t *testing.T) {
 		if s.Cleaned(epoch) != ErrState || s.Begin(epoch) != ErrState {
 			t.Fatal("cleanup forgot active native requests")
 		}
+		copied := *first
 		e, err = s.CompleteNative(first, epoch)
 		must(t, e, err)
+		if _, err = s.CompleteNative(&copied, epoch); err != ErrState || s.Snapshot().NativeActive != 1 {
+			t.Fatal("copied lease released another request")
+		}
 		if _, err = s.CompleteNative(first, epoch); err != ErrState || s.Snapshot().NativeActive != 1 {
 			t.Fatal("duplicate completion released another request")
 		}
