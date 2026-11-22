@@ -433,6 +433,11 @@ func (s *Service) nextLocked() any {
 		return nil
 	}
 	snapshot := s.state.Snapshot()
+	// Unregister is our final frame. In particular, do not start a periodic
+	// status write that the terminal ack could interrupt with carrier shutdown.
+	if snapshot.UnregisterPending {
+		return nil
+	}
 	var message any
 	switch {
 	case s.localDrain:

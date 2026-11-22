@@ -222,6 +222,13 @@ func TestRotationHintAndFinalClose(t *testing.T) {
 			if s.ReconnectRequested() {
 				t.Fatal("reconnect before cleanup")
 			}
+			// Unregister must be the final S frame, so a delayed terminal ack
+			// cannot race a periodic status write and close with protocol_error.
+			quiet, cancelQuiet := context.WithTimeout(t.Context(), 80*time.Millisecond)
+			if m, err := g.Receive(quiet); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal("frame after unregister", m, err)
+			}
+			cancelQuiet()
 			var drained chan error
 			if final {
 				drained = make(chan error, 1)
