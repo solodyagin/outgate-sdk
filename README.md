@@ -32,6 +32,8 @@ Session codecs проверяют положительные u64 sequence/comman
 
 Отдельная [`sessionstate`](sessionstate/README.md) связывает регистрацию, readiness/status freshness, callback thresholds и один outstanding callback, drain/ack fences, unregister и bounded reconnect с HTTP/WS state. Время и проверенную security readiness передаёт вызывающий слой; модель не выполняет I/O, callbacks или durable registration. Транспортные очереди, фактический cleanup и thread-safe прикладной `client` ещё не реализованы. Fixed charges внутреннего состояния не заменяют измерение памяти будущего адаптера.
 
+Для QUIC режим `NativeStreams` учитывает concurrency непрозрачными leases, без WSS credit/framing. Завершение обоих направлений сообщает `quichttp.RoundTripWithCompletion`; cleanup и повторное Begin блокируются до возврата старых leases. Сериализацию native starts относительно control drain/fence должен обеспечить adapter отдельно.
+
 ## HTTP signatures и replay interface
 
 Пакет [`httpsig`](httpsig/README.md) реализует фиксированный Outgate RFC 9421 HMAC-SHA256 профиль: два legs, exact component coverage/order, bounded Structured Fields/HTTP metadata/context, nonce generation и временное окно. Все 4 существующих signature vectors проверяются на Go без изменения corpus. Scheme задаётся явно; authority нормализуется по RFC, исходный публичный URI и query сохраняются. Body API не принимает и не читает.

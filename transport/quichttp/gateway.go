@@ -42,9 +42,21 @@ func NewGateway(carrier *quiccontrol.Carrier) (*Gateway, error) {
 }
 
 func (g *Gateway) RoundTrip(req *http.Request) (*http.Response, error) {
+	return g.RoundTripWithCompletion(req, nil)
+}
+
+// RoundTripWithCompletion calls completed exactly once when both directions
+// finish or are canceled, including pre-I/O rejection. It may run before this
+// method returns or asynchronously afterwards, outside transport mutexes. The
+// callback must not block. It lets an outer lifecycle retain admission through
+// an early response EOF without buffering bodies or synthesizing WSS frames.
+func (g *Gateway) RoundTripWithCompletion(req *http.Request, completed func()) (*http.Response, error) {
 	fail := func(err error) (*http.Response, error) {
 		if req != nil && req.Body != nil {
 			_ = req.Body.Close()
+		}
+		if completed != nil {
+			completed()
 		}
 		return nil, err
 	}
@@ -92,7 +104,12 @@ func (g *Gateway) RoundTrip(req *http.Request) (*http.Response, error) {
 	forward.Header.Set(requestIDHeader, strconv.FormatUint(id, 10))
 	ctx, cancel := context.WithCancel(req.Context())
 	stopConn := context.AfterFunc(g.client.Context(), cancel)
-	x := &exchange{cancel: cancel, stopConn: stopConn, release: func() { <-g.slots }}
+	x := &exchange{cancel: cancel, stopConn: stopConn, release: func() {
+		<-g.slots
+		if completed != nil {
+			completed()
+		}
+	}}
 	if req.Body == nil || req.Body == http.NoBody {
 		x.uploaded = true
 		forward.Body = nil

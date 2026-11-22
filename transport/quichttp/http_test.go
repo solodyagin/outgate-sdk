@@ -160,10 +160,16 @@ func TestResponseEOFDoesNotReleaseOutstandingUpload(t *testing.T) {
 	}))
 	reader, writer := io.Pipe()
 	defer writer.Close()
-	response, err := g.RoundTrip(request(t, t.Context(), "POST", "/half-close", reader))
+	completed := make(chan struct{}, 2)
+	response, err := g.RoundTripWithCompletion(request(t, t.Context(), "POST", "/half-close", reader), func() { completed <- struct{}{} })
 	must(t, err)
 	_, err = io.ReadAll(response.Body)
 	must(t, err)
+	select {
+	case <-completed:
+		t.Fatal("outer completion forgot outstanding upload")
+	default:
+	}
 	if _, err := g.RoundTrip(request(t, t.Context(), "GET", "/too-early", nil)); err != ErrBusy {
 		t.Fatal("EOF released an unfinished upload", err)
 	}
@@ -172,6 +178,20 @@ func TestResponseEOFDoesNotReleaseOutstandingUpload(t *testing.T) {
 	must(t, writer.Close())
 	must(t, await(t, finished))
 	must(t, response.Body.Close())
+	await(t, completed)
+	select {
+	case <-completed:
+		t.Fatal("completion called twice")
+	default:
+	}
+}
+
+func TestPreIOFailureCompletesExactlyOnce(t *testing.T) {
+	g, _, _, _ := session(t, 1, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unexpected dispatch") }))
+	count := 0
+	if _, err := g.RoundTripWithCompletion(nil, func() { count++ }); err != ErrRequest || count != 1 {
+		t.Fatal("pre-I/O completion lost", err, count)
+	}
 }
 
 func TestServiceEnforcesAdmissionAgainstPeer(t *testing.T) {

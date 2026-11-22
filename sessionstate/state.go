@@ -1,4 +1,4 @@
-// Package sessionstate models one owner's WSS session lifecycle without I/O,
+// Package sessionstate models one owner's WSS or native-stream session lifecycle without I/O,
 // callbacks or goroutines. Serialize every method at ordered frame boundaries.
 package sessionstate
 
@@ -47,6 +47,9 @@ type Config struct {
 	RegisterTimeout   time.Duration
 	MaxCommands       int
 	MaxPendingCancels int
+	// NativeStreams selects QUIC-style stream lifetime leases instead of WSS
+	// framing/credit state. Native transport queues/buffers remain external.
+	NativeStreams bool
 }
 
 const commandCharge = 128
@@ -86,6 +89,7 @@ type Snapshot struct {
 	Streams          wssstate.Stats
 	ProbeOutstanding bool
 	ProbeDeadline    time.Time
+	NativeActive     int
 }
 
 type State struct {
@@ -103,14 +107,17 @@ type State struct {
 	reportedReady             bool
 	fence, shutdown, rotating bool
 
-	register              *v1.Register
-	sessionID, previousID string
-	barrier, expiry       time.Time
-	timeouts              v1.RegisterAckTimeouts
-	commands              map[uint64]command
-	streamControlLimit    int
-	admitted              bool
-	streams               *wssstate.State
+	register                  *v1.Register
+	sessionID, previousID     string
+	barrier, expiry           time.Time
+	timeouts                  v1.RegisterAckTimeouts
+	commands                  map[uint64]command
+	streamControlLimit        int
+	admitted                  bool
+	streams                   *wssstate.State
+	registered                bool
+	nativeActive, nativeLimit int
+	nativeReserved            uint64
 
 	probeConfigured     bool
 	probeReady          bool
@@ -123,7 +130,7 @@ type State struct {
 }
 
 func New(c Config) (*State, error) {
-	if c.Local != Gateway && c.Local != Service || c.MaxControlBytes < 1 || c.MaxControlBytes > v1.MaxControlBytes || c.RegisterTimeout <= 0 || c.RegisterTimeout > 10*time.Second || c.MaxCommands < 1 || c.MaxCommands > 2048 || c.MaxPendingCancels < 1 || c.MaxPendingCancels > 2048 {
+	if c.Local != Gateway && c.Local != Service || c.MaxControlBytes < 1 || c.MaxControlBytes > v1.MaxControlBytes || c.RegisterTimeout <= 0 || c.RegisterTimeout > 10*time.Second || c.MaxCommands < 1 || c.MaxCommands > 2048 || (!c.NativeStreams && c.MaxPendingCancels < 1) || c.MaxPendingCancels < 0 || c.MaxPendingCancels > 2048 {
 		return nil, ErrProtocol
 	}
 	return &State{config: c, phase: Created}, nil
@@ -133,12 +140,18 @@ func (s *State) Snapshot() Snapshot {
 	out := Snapshot{Phase: s.phase, TransportActive: s.active, CleanupRequired: s.cleanup, SessionID: s.sessionID, Sequence: s.sequence, LastStatus: s.lastStatus, Deadline: earlier(s.registerDeadline, s.drainDeadline), Fenced: s.fence, Commands: len(s.commands)}
 	out.Deadline = earlier(out.Deadline, earlier(s.securityDeadline, s.expiry))
 	out.ProbeOutstanding = s.probeRunning
+	out.NativeActive = s.nativeActive
+	if s.config.NativeStreams {
+		out.ReservedBytes = s.nativeReserved
+	}
 	if s.probeRunning && !s.probeTimedOut {
 		out.ProbeDeadline = s.probeDeadline
 	}
 	if s.streams != nil {
 		out.Streams = s.streams.Stats()
 		out.ReservedBytes = out.Streams.ReservedBytes + uint64(s.config.MaxCommands*commandCharge)
+	}
+	if s.registered {
 		out.StatusDue = s.config.Local == Service && (s.reportedReady != (s.eligible(s.lastTime) && s.phase != Draining) || s.lastStatus.IsZero() || !s.lastTime.Before(s.lastStatus.Add(time.Duration(s.timeouts.StatusIntervalMS)*time.Millisecond)))
 	}
 	return out
@@ -184,6 +197,10 @@ func (s *State) Begin(now time.Time) error {
 	s.successes = 0
 	s.failures = 0
 	s.streams = nil
+	s.registered = false
+	s.nativeActive = 0
+	s.nativeLimit = 0
+	s.nativeReserved = 0
 	return nil
 }
 
@@ -304,7 +321,7 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 	}
 	raw, err := json.Marshal(message)
 	limit := s.config.MaxControlBytes
-	if s.streams != nil {
+	if s.registered {
 		limit = s.streamControlLimit
 	}
 	if err != nil || len(raw) > limit {
@@ -333,12 +350,22 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 		if limits.BufferBytes <= 0 {
 			return s.reject(from, ErrCapacity)
 		}
-		streams, err := wssstate.New(wssstate.Config{Local: s.config.Local, Limits: limits, CancelAckTimeout: time.Duration(m.Timeouts.CancelAckMS) * time.Millisecond, MaxPendingCancels: s.config.MaxPendingCancels})
-		if err != nil {
-			return s.reject(from, err)
+		if s.config.NativeStreams {
+			fixed := uint64(m.Limits.MaxInflight)*64 + uint64(s.config.MaxCommands*commandCharge)
+			if fixed > uint64(m.Limits.BufferBytes) {
+				return s.reject(from, ErrCapacity)
+			}
+			s.nativeLimit = m.Limits.MaxInflight
+			s.nativeReserved = fixed
+		} else {
+			streams, err := wssstate.New(wssstate.Config{Local: s.config.Local, Limits: limits, CancelAckTimeout: time.Duration(m.Timeouts.CancelAckMS) * time.Millisecond, MaxPendingCancels: s.config.MaxPendingCancels})
+			if err != nil {
+				return s.reject(from, err)
+			}
+			s.streams = streams
 		}
 		s.commands = make(map[uint64]command, s.config.MaxCommands)
-		s.streams = streams
+		s.registered = true
 		s.streamControlLimit = m.Limits.MaxControlBytes
 		s.probeConfigured = s.register.ReadinessCheckConfigured
 		s.readiness = m.Readiness
@@ -358,7 +385,7 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 		}
 		return s.finish(m.Retryable), nil
 	case v1.InstanceStatus:
-		if s.streams == nil || from != Service || uint64(m.Sequence) <= s.sequence || from == s.config.Local && m.Ready && (m.Code != "ready" || !s.eligible(now) || s.phase == Draining) {
+		if !s.registered || from != Service || uint64(m.Sequence) <= s.sequence || from == s.config.Local && m.Ready && (m.Code != "ready" || !s.eligible(now) || s.phase == Draining) {
 			return s.reject(from, ErrProtocol)
 		}
 		s.sequence = uint64(m.Sequence)
@@ -388,7 +415,7 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 }
 
 func (s *State) command(from Role, id uint64, kind string, ms int, code string, now time.Time) (Effect, error) {
-	if s.streams == nil {
+	if !s.registered {
 		return s.reject(from, ErrProtocol)
 	}
 	if _, exists := s.commands[id]; exists {
@@ -509,7 +536,7 @@ func (s *State) Close(deadline, now time.Time) (Effect, error) {
 	if e, err := s.Advance(now); err != nil {
 		return e, err
 	}
-	if !s.active || s.streams == nil {
+	if !s.active || !s.registered {
 		return s.finish(false), nil
 	}
 	s.phase = Draining
@@ -537,7 +564,7 @@ func (s *State) Disconnected(retry bool, now time.Time) (Effect, error) {
 // handler/queue/stream resource, including the outstanding readiness invocation.
 // It does not start another connection; an uncooperative callback blocks reconnect.
 func (s *State) Cleaned(now time.Time) error {
-	if s.active || !s.cleanup || s.probeRunning {
+	if s.active || !s.cleanup || s.probeRunning || s.nativeActive != 0 {
 		return ErrState
 	}
 	if err := s.clock(now); err != nil {
@@ -545,6 +572,7 @@ func (s *State) Cleaned(now time.Time) error {
 		return err
 	}
 	s.cleanup = false
+	s.nativeReserved = 0
 	return nil
 }
 func (s *State) finish(retry bool) Effect {
@@ -558,6 +586,7 @@ func (s *State) finish(retry bool) Effect {
 	}
 	s.register = nil
 	s.streams = nil
+	s.registered = false
 	s.commands = nil
 	s.securityReady = false
 	s.registerDeadline = time.Time{}
@@ -571,6 +600,9 @@ func (s *State) reject(from Role, err error) (Effect, error) {
 	return Effect{}, err
 }
 func (s *State) empty() bool {
+	if s.config.NativeStreams {
+		return s.registered && s.nativeActive == 0
+	}
 	return s.streams != nil && s.streams.Stats().Active == 0 && s.streams.Stats().PendingCancels == 0
 }
 func (s *State) hasUnregister() bool {
@@ -616,7 +648,7 @@ func (s *State) StartProbe(now time.Time) (Effect, error) {
 	if e, err := s.Advance(now); err != nil {
 		return e, err
 	}
-	if s.config.Local != Service || !s.probeConfigured || s.streams == nil || s.phase == Draining || s.probeRunning {
+	if s.config.Local != Service || !s.probeConfigured || !s.registered || s.phase == Draining || s.probeRunning {
 		return Effect{}, ErrState
 	}
 	s.probeRunning = true
