@@ -161,6 +161,9 @@ func (s *Service) Serve() error {
 	}
 	err := s.server.ServeQUICConn(s.conn)
 	_ = s.carrier.Close()
+	if cause := context.Cause(s.conn.Context()); cause != nil {
+		err = cause
+	}
 	return err
 }
 

@@ -3,6 +3,7 @@ package quiccontrol
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
@@ -100,7 +101,19 @@ func (c *Carrier) ClaimHTTP3(service bool) (*quic.Conn, v1.RegisterAckLimits, er
 // Close ends the entire QUIC session, never half-closes the carrier. It unblocks
 // pending Send/Receive calls and joins the carrier reader. It is idempotent.
 func (c *Carrier) Close() error {
-	c.fail(context.Canceled, CodeNormal, "normal")
+	// AcceptStream/Read can observe shutdown before QUIC publishes its context
+	// cause. Join that publication before waking the control owner, so HTTP/3
+	// cleanup cannot turn a remote disconnect into local context.Canceled.
+	c.once.Do(func() {
+		_ = c.conn.CloseWithError(CodeNormal, "normal")
+		<-c.conn.Context().Done()
+		cause := context.Cause(c.conn.Context())
+		var app *quic.ApplicationError
+		if errors.As(cause, &app) && !app.Remote && app.ErrorCode == CodeNormal {
+			cause = context.Canceled
+		}
+		c.cancel(cause)
+	})
 	<-c.readerDone
 	return nil
 }

@@ -2,7 +2,7 @@
 
 `NewService(carrier, handler, Options)` запускает control reader/writer, reverse HTTP/3 server и readiness timer на уже зарегистрированном service-side carrier. Он использует независимые копии **фактических** register/ack из bootstrap, включая expiry, barrier, limits и development profile. Caller не передаёт подменяемый ack. Требуется negotiated minor-1 `quic_quiescent_fence`; отсутствие capability возвращает ошибку без fallback.
 
-Это transport driver, ещё не прикладной `client.Client`: dial, credential acquisition, automatic reconnect, `Run`/`WaitReady`, WebSocket/Hijacker и service-to-service HTTP client остаются в работе. `NewService` сразу запускает goroutines; его контракт отличается от будущего `client.New`. Carrier/control reader и HTTP attachment передаются одному владельцу.
+Это transport driver; public `client.Client` подключает Run/WaitReady/Close и sequential reconnect через explicit Connect callback. Встроенные dial/credential acquisition, WebSocket/Hijacker и service-to-service HTTP client остаются в работе. `NewService` сразу запускает goroutines; его контракт отличается от будущего `client.New`. Carrier/control reader и HTTP attachment передаются одному владельцу.
 
 `SecurityReady` по умолчанию false. Проверенную локальную security readiness устанавливают options или `SetSecurity`; абсолютный deadline может только сокращаться. Handler должен включать настоящие signature/authorization checks. Driver не проверяет grant/revocation stores и не создаёт identity. До первого ready status и при security recovery handler не вызывается; отклонённый запрос получает 503 без retry. Уже назначенные G запросы при временной потере callback readiness допускаются согласно sessionstate, пока нет security failure/fence.
 
