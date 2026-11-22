@@ -94,6 +94,20 @@ def main():
     examples = read("control-messages.json")
     check({m["type"] for m in examples["positive"]} == message_types,
           "One example per message type")
+    fences = read("quic-quiescent-fence.json")
+    for case in fences["positive"]:
+        wire = case["control_json_utf8"].encode()
+        check(json.loads(wire) == case["message"], case["name"] + " fence JSON")
+        check((len(wire).to_bytes(4, "big") + wire).hex() == case["frame_hex"],
+              case["name"] + " fence bytes")
+        check(case["message"]["extensions"][fences["capability"]] == case["fence"],
+              case["name"] + " fence value")
+    for case in fences["negative"]:
+        value = case["extensions"].get(fences["capability"])
+        valid = (isinstance(value, str) and value.isascii() and value.isdecimal()
+                 and (value == "0" or not value.startswith("0"))
+                 and len(value) <= 20 and int(value) <= 18446744073709551615)
+        check(not valid, case["name"] + " fence negative")
     # Full Draft 2020-12 validation is a separate JSON Schema validator step.
     print(f"PASS: {len(message_types)} message types covered; {len(frames['cases'])} WSS "
           f"frame cases; {len(vectors)} HMAC+tamper vectors; QUIC bootstrap bytes. "

@@ -25,6 +25,7 @@ type Gateway struct {
 	slots     chan struct{}
 	idMu      sync.Mutex
 	next      uint64
+	paused    bool
 }
 
 var _ http.RoundTripper = (*Gateway)(nil)
@@ -93,6 +94,11 @@ func (g *Gateway) RoundTripWithCompletion(req *http.Request, completed func()) (
 		return fail(ErrBusy)
 	}
 	g.idMu.Lock()
+	if g.paused {
+		g.idMu.Unlock()
+		<-g.slots
+		return fail(ErrQuiescing)
+	}
 	if g.next == math.MaxUint64 {
 		g.idMu.Unlock()
 		<-g.slots
@@ -141,6 +147,17 @@ func (g *Gateway) RoundTripWithCompletion(req *http.Request, completed func()) (
 	response.Body = &responseBody{ReadCloser: response.Body, exchange: x}
 	response.Request = req
 	return response, nil
+}
+
+// Pause permanently stops logical ID allocation and native request admission.
+// It returns the frozen watermark, including requests already assigned an ID
+// but still preparing headers. The caller waits for exchange completion before
+// sending a negotiated quiescent fence. No request is retried or reassigned.
+func (g *Gateway) Pause() uint64 {
+	g.idMu.Lock()
+	defer g.idMu.Unlock()
+	g.paused = true
+	return g.next
 }
 
 func (g *Gateway) Close() error {

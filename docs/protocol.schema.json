@@ -130,7 +130,12 @@
     },
     "extensions": {
       "type": "object",
-      "maxProperties": 32
+      "maxProperties": 32,
+      "properties": {
+        "quic_quiescent_fence": {
+          "$ref": "#/$defs/u64"
+        }
+      }
     },
     "metadata": {
       "type": "object",

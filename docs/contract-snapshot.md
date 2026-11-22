@@ -2,7 +2,7 @@
 
 Нормативный источник — gateway repository [solodyagin/outgate](https://github.com/solodyagin/outgate), [ТЗ](https://github.com/solodyagin/outgate/blob/main/docs/requirements.md) и [протокол](https://github.com/solodyagin/outgate/blob/main/docs/protocol.md).
 
-Начальный snapshot от 2026-11-21: gateway revision `5d3635cf1f0e64ee0af9dd5d504877a35b8f276c`. `docs/protocol.schema.json` и весь `tests/fixtures/protocol/v1/` (включая verifier) скопированы побайтово из этой ревизии; wire-контракт при выделении SDK не менялся. Это тестовые данные и schema, а не dependency на gateway.
+Обновлённый snapshot от 2026-11-22: gateway revision `fb4d1986457375184a5469877568b07b074d9ace`. Schema и весь corpus скопированы побайтово; minor 1 добавляет negotiated QUIC quiescent fence, сохраняя прежние minor-0 bootstrap/control bytes. Это тестовые данные и schema, а не dependency на gateway.
 
 При изменении контракта сначала согласуйте ТЗ, protocol/schema и golden corpus в gateway. Затем скопируйте schema и весь corpus в те же пути SDK, обновите source revision здесь и выполните verifier в обоих repositories, SDK race/vet и отдельный Windows compile. Нормативные fixtures нельзя менять только ради прохождения SDK tests.
 

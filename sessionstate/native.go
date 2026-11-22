@@ -1,6 +1,10 @@
 package sessionstate
 
-import "time"
+import (
+	"encoding/json"
+	v1 "github.com/solodyagin/outgate-sdk/protocol/v1"
+	"time"
+)
 
 // NativeLease tracks one native transport exchange through both directions.
 // Only its issuing State can complete it, exactly once. It does not represent
@@ -54,4 +58,26 @@ func (s *State) CompleteNative(lease *NativeLease, now time.Time) (Effect, error
 		return s.Advance(now)
 	}
 	return Effect{}, nil
+}
+
+func (s *State) withNativeFence(from Role, extensions map[string]json.RawMessage, apply func() (Effect, error)) (Effect, error) {
+	if !s.quiescentFence {
+		return apply()
+	}
+	_, present := extensions[v1.QUICQuiescentFenceCapability]
+	if from == Service {
+		if present {
+			return s.reject(from, ErrProtocol)
+		}
+		return apply()
+	}
+	value, err := v1.DecodeQUICQuiescentFence(extensions)
+	if err != nil || s.lastFence != nil && value > *s.lastFence || s.config.Local == Gateway && s.nativeActive != 0 {
+		return s.reject(from, ErrProtocol)
+	}
+	effect, err := apply()
+	if err == nil {
+		s.lastFence = &value
+	}
+	return effect, err
 }

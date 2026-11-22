@@ -15,8 +15,9 @@ import (
 const requestIDHeader = "X-Tunnel-Request-Id"
 
 var (
-	ErrBusy    = errors.New("outgate: QUIC request capacity exhausted")
-	ErrRequest = errors.New("outgate: invalid ordinary HTTP metadata")
+	ErrBusy      = errors.New("outgate: QUIC request capacity exhausted")
+	ErrRequest   = errors.New("outgate: invalid ordinary HTTP metadata")
+	ErrQuiescing = errors.New("outgate: QUIC session is quiescing")
 )
 
 // headerPairs bounds the expanded HTTP/3 field section before allocating the

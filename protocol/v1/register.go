@@ -88,6 +88,14 @@ func DecodeRegister(b []byte) (Register, error) {
 }
 
 func (r Register) Validate() error {
+	if _, ok := r.Extensions[QUICQuiescentFenceCapability]; ok {
+		if _, err := DecodeQUICQuiescentFence(r.Extensions); err != nil {
+			return err
+		}
+	}
+	if contains(r.RequiredCapabilities, QUICQuiescentFenceCapability) && r.ProtocolMinor < 1 {
+		return ErrProtocol
+	}
 	if len(r.Extensions) > 32 {
 		return ErrProtocol
 	}

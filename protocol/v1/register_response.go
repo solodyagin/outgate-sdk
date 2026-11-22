@@ -156,6 +156,9 @@ func DecodeRegisterNack(b []byte) (RegisterNack, error) {
 // Validate checks message semantics and bounded serialization. Null expiry is
 // structurally valid; ValidateForRegister enforces the environment-specific rule.
 func (r RegisterAck) Validate() error {
+	if contains(r.RequiredCapabilities, QUICQuiescentFenceCapability) && r.ProtocolMinor < 1 {
+		return ErrProtocol
+	}
 	if r.Type != "register_ack" || r.ProtocolVersion != Major || r.ProtocolMinor < 0 || r.ProtocolMinor > 65535 {
 		return ErrProtocol
 	}
@@ -226,6 +229,11 @@ func (r RegisterNack) Validate() error {
 // Check programmatically constructed messages too: RawMessage must not bypass
 // bounded JSON, duplicate-key, surrogate or UTF-8 checks during serialization.
 func validateResponseJSON(message any, extensions map[string]json.RawMessage) error {
+	if _, ok := extensions[QUICQuiescentFenceCapability]; ok {
+		if _, err := DecodeQUICQuiescentFence(extensions); err != nil {
+			return err
+		}
+	}
 	if len(extensions) > 32 {
 		return ErrProtocol
 	}
@@ -256,6 +264,12 @@ type RegisterAckValidationOptions struct {
 // clocks, credential verification, budget reservation or session state changes.
 // A non-null expiry is range-checked, not checked for freshness or authenticity.
 func (r RegisterAck) ValidateForRegister(register Register, options RegisterAckValidationOptions) error {
+	if contains(register.RequiredCapabilities, QUICQuiescentFenceCapability) && !HasQUICQuiescentFence(r) {
+		return ErrProtocol
+	}
+	if HasQUICQuiescentFence(r) && !contains(register.RequiredCapabilities, QUICQuiescentFenceCapability) {
+		return ErrProtocol
+	}
 	if r.Validate() != nil || register.Validate() != nil {
 		return ErrProtocol
 	}

@@ -170,3 +170,50 @@ func TestNativeCannotUseWSSFramesAndWaitsForExpiryCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNegotiatedFenceRequiresActualQuiescence(t *testing.T) {
+	c := config(Gateway)
+	c.NativeStreams = true
+	c.MaxPendingCancels = 0
+	s, err := New(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Begin(epoch); err != nil {
+		t.Fatal(err)
+	}
+	r, a := fixtures(t)
+	r.ProtocolMinor = 1
+	a.ProtocolMinor = 1
+	r.Capabilities = append(r.Capabilities, v1.QUICQuiescentFenceCapability)
+	r.RequiredCapabilities = append(r.RequiredCapabilities, v1.QUICQuiescentFenceCapability)
+	a.Capabilities = append(a.Capabilities, v1.QUICQuiescentFenceCapability)
+	a.RequiredCapabilities = append(a.RequiredCapabilities, v1.QUICQuiescentFenceCapability)
+	apply(t, s, Service, r, epoch)
+	e, err := s.AuthorizeRegistration(epoch)
+	must(t, e, err)
+	apply(t, s, Gateway, a, epoch)
+	e, err = s.Security(true, time.Time{}, epoch)
+	must(t, e, err)
+	apply(t, s, Service, status(1, true), epoch)
+	lease, e, err := s.AdmitNative(epoch)
+	must(t, e, err)
+	e = apply(t, s, Service, drain(7, 30000, "shutdown"), epoch)
+	ack := *e.Reply
+	ack.Extensions = v1.QUICQuiescentFenceExtensions(9)
+	if _, err = s.Apply(Gateway, ack, epoch); err != ErrProtocol {
+		t.Fatal("active exchange allowed quiescent ack")
+	}
+	e, err = s.CompleteNative(lease, epoch)
+	must(t, e, err)
+	apply(t, s, Gateway, ack, epoch)
+	increased := drain(8, 1000, "shutdown")
+	increased.Extensions = v1.QUICQuiescentFenceExtensions(10)
+	if _, err = s.Apply(Gateway, increased, epoch); err != ErrProtocol {
+		t.Fatal("watermark increased")
+	}
+	missing := drain(9, 1000, "shutdown")
+	if _, err = s.Apply(Gateway, missing, epoch); err != ErrProtocol {
+		t.Fatal("missing negotiated fence accepted")
+	}
+}

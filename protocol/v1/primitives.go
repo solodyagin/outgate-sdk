@@ -8,7 +8,7 @@ import (
 
 const (
 	Major              = 1
-	Minor              = 0
+	Minor              = 1
 	MaxControlBytes    = 65536
 	MaxChunkBytes      = 32768
 	MaxCredentialBytes = 4096

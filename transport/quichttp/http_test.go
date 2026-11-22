@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 	"github.com/solodyagin/outgate-sdk/internal/quictest"
 	v1 "github.com/solodyagin/outgate-sdk/protocol/v1"
@@ -191,6 +193,78 @@ func TestPreIOFailureCompletesExactlyOnce(t *testing.T) {
 	count := 0
 	if _, err := g.RoundTripWithCompletion(nil, func() { count++ }); err != ErrRequest || count != 1 {
 		t.Fatal("pre-I/O completion lost", err, count)
+	}
+}
+
+func TestQuiescentFenceDropsLateCanceledRequests(t *testing.T) {
+	for _, invalid := range []string{"above", "reuse"} {
+		t.Run(invalid, func(t *testing.T) {
+			var calls atomic.Int32
+			g, s, c, _ := session(t, 2, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls.Add(1); w.WriteHeader(204) }))
+			// Logical IDs allocated by G before cancellation need not all reach S.
+			g.idMu.Lock()
+			g.next = 7
+			g.idMu.Unlock()
+			if g.Pause() != 7 || g.Pause() != 7 {
+				t.Fatal("watermark changed after pause")
+			}
+			if _, err := g.RoundTrip(request(t, t.Context(), "GET", "/new", nil)); err != ErrQuiescing {
+				t.Fatal("paused gateway admitted request", err)
+			}
+			must(t, s.Quiesce(t.Context(), 7))
+			late := request(t, t.Context(), "GET", "/late-canceled", nil)
+			late.Header.Set(requestIDHeader, "5")
+			response, err := g.client.RoundTrip(late)
+			if err == nil {
+				response.Body.Close()
+				t.Fatal("late canceled request dispatched")
+			}
+			var streamErr *quic.StreamError
+			if !errors.As(err, &streamErr) || streamErr.ErrorCode != quic.StreamErrorCode(http3.ErrCodeRequestCanceled) {
+				t.Fatal("wrong late stream reset", err)
+			}
+			if calls.Load() != 0 || c.Err() != nil {
+				t.Fatal("late canceled stream damaged session")
+			}
+			bad := request(t, t.Context(), "GET", "/invalid-fence", nil)
+			id := "8"
+			if invalid == "reuse" {
+				id = "5"
+			}
+			bad.Header.Set(requestIDHeader, id)
+			if response, err := g.client.RoundTrip(bad); err == nil {
+				response.Body.Close()
+				t.Fatal("invalid ID escaped fence")
+			}
+			await(t, c.Done())
+		})
+	}
+}
+
+func TestQuiesceWaitsForActualHandlerCleanup(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	g, s, _, _ := session(t, 2, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+		w.(http.Flusher).Flush()
+		close(entered)
+		<-release
+	}))
+	response, err := g.RoundTrip(request(t, t.Context(), "GET", "/active", nil))
+	must(t, err)
+	await(t, entered)
+	fence := g.Pause()
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	if err := s.Quiesce(ctx, fence); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("quiesce skipped active handler", err)
+	}
+	once.Do(func() { close(release) })
+	drain(t, response)
+	must(t, s.Quiesce(t.Context(), fence))
+	if err := s.Quiesce(t.Context(), fence+1); err != v1.ErrProtocol {
+		t.Fatal("fence increased")
 	}
 }
 

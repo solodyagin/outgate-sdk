@@ -118,6 +118,8 @@ type State struct {
 	registered                bool
 	nativeActive, nativeLimit int
 	nativeReserved            uint64
+	quiescentFence            bool
+	lastFence                 *uint64
 
 	probeConfigured     bool
 	probeReady          bool
@@ -201,6 +203,8 @@ func (s *State) Begin(now time.Time) error {
 	s.nativeActive = 0
 	s.nativeLimit = 0
 	s.nativeReserved = 0
+	s.quiescentFence = false
+	s.lastFence = nil
 	return nil
 }
 
@@ -339,6 +343,9 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 		}
 		s.register = &copy
 	case v1.RegisterAck:
+		if v1.HasQUICQuiescentFence(m) && !s.config.NativeStreams {
+			return s.reject(from, ErrProtocol)
+		}
 		if s.phase != Connecting || from != Gateway || s.register == nil || s.config.Local == Gateway && !s.authorized || m.SessionID == s.previousID || m.ValidateForRegister(*s.register, v1.RegisterAckValidationOptions{Development: s.config.Development}) != nil || m.Limits.MaxControlBytes > s.config.MaxControlBytes {
 			return s.reject(from, ErrProtocol)
 		}
@@ -366,6 +373,7 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 		}
 		s.commands = make(map[uint64]command, s.config.MaxCommands)
 		s.registered = true
+		s.quiescentFence = v1.HasQUICQuiescentFence(m)
 		s.streamControlLimit = m.Limits.MaxControlBytes
 		s.probeConfigured = s.register.ReadinessCheckConfigured
 		s.readiness = m.Readiness
@@ -393,19 +401,26 @@ func (s *State) Apply(from Role, message any, now time.Time) (Effect, error) {
 		s.lastStatus = now
 		s.refresh(now)
 	case v1.Drain:
-		return s.command(from, uint64(m.CommandID), "drain", m.DeadlineMS, m.Code, now)
+		return s.withNativeFence(from, m.Extensions, func() (Effect, error) {
+			return s.command(from, uint64(m.CommandID), "drain", m.DeadlineMS, m.Code, now)
+		})
 	case v1.Reconnect:
 		if from != Gateway {
 			return s.reject(from, ErrProtocol)
 		}
-		return s.command(from, uint64(m.CommandID), "reconnect", m.DeadlineMS, m.Code, now)
+		return s.withNativeFence(from, m.Extensions, func() (Effect, error) {
+			return s.command(from, uint64(m.CommandID), "reconnect", m.DeadlineMS, m.Code, now)
+		})
 	case v1.Unregister:
+		if _, present := m.Extensions[v1.QUICQuiescentFenceCapability]; s.quiescentFence && present {
+			return s.reject(from, ErrProtocol)
+		}
 		if from != Service || s.phase != Draining || !s.fence || !s.empty() || s.pendingDrains() || s.hasUnregister() {
 			return s.reject(from, ErrProtocol)
 		}
 		return s.command(from, uint64(m.CommandID), "unregister", m.DeadlineMS, m.Code, now)
 	case v1.DrainAck:
-		return s.ack(from, uint64(m.CommandID), "drain", now)
+		return s.withNativeFence(from, m.Extensions, func() (Effect, error) { return s.ack(from, uint64(m.CommandID), "drain", now) })
 	case v1.UnregisterAck:
 		return s.ack(from, uint64(m.CommandID), "unregister", now)
 	default:

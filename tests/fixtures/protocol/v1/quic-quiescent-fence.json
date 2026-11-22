@@ -1,0 +1,91 @@
+{
+  "capability": "quic_quiescent_fence",
+  "minimum_minor": 1,
+  "positive": [
+    {
+      "name": "empty",
+      "message": {
+        "type": "drain_ack",
+        "command_id": "7",
+        "extensions": {
+          "quic_quiescent_fence": "0"
+        }
+      },
+      "control_json_utf8": "{\"type\":\"drain_ack\",\"command_id\":\"7\",\"extensions\":{\"quic_quiescent_fence\":\"0\"}}",
+      "frame_hex": "0000004f7b2274797065223a22647261696e5f61636b222c22636f6d6d616e645f6964223a2237222c22657874656e73696f6e73223a7b22717569635f717569657363656e745f66656e6365223a2230227d7d",
+      "fence": "0"
+    },
+    {
+      "name": "one",
+      "message": {
+        "type": "drain",
+        "command_id": "7",
+        "deadline_ms": 1000,
+        "code": "shutdown",
+        "extensions": {
+          "quic_quiescent_fence": "1"
+        }
+      },
+      "control_json_utf8": "{\"type\":\"drain\",\"command_id\":\"7\",\"deadline_ms\":1000,\"code\":\"shutdown\",\"extensions\":{\"quic_quiescent_fence\":\"1\"}}",
+      "frame_hex": "000000707b2274797065223a22647261696e222c22636f6d6d616e645f6964223a2237222c22646561646c696e655f6d73223a313030302c22636f6465223a2273687574646f776e222c22657874656e73696f6e73223a7b22717569635f717569657363656e745f66656e6365223a2231227d7d",
+      "fence": "1"
+    },
+    {
+      "name": "max",
+      "message": {
+        "type": "reconnect",
+        "command_id": "7",
+        "deadline_ms": 1000,
+        "code": "shutdown",
+        "extensions": {
+          "quic_quiescent_fence": "18446744073709551615"
+        }
+      },
+      "control_json_utf8": "{\"type\":\"reconnect\",\"command_id\":\"7\",\"deadline_ms\":1000,\"code\":\"shutdown\",\"extensions\":{\"quic_quiescent_fence\":\"18446744073709551615\"}}",
+      "frame_hex": "000000877b2274797065223a227265636f6e6e656374222c22636f6d6d616e645f6964223a2237222c22646561646c696e655f6d73223a313030302c22636f6465223a2273687574646f776e222c22657874656e73696f6e73223a7b22717569635f717569657363656e745f66656e6365223a223138343436373434303733373039353531363135227d7d",
+      "fence": "18446744073709551615"
+    }
+  ],
+  "negative": [
+    {
+      "name": "number",
+      "extensions": {
+        "quic_quiescent_fence": 1
+      },
+      "schema_valid": false
+    },
+    {
+      "name": "leading_zero",
+      "extensions": {
+        "quic_quiescent_fence": "01"
+      },
+      "schema_valid": false
+    },
+    {
+      "name": "negative",
+      "extensions": {
+        "quic_quiescent_fence": "-1"
+      },
+      "schema_valid": false
+    },
+    {
+      "name": "overflow",
+      "extensions": {
+        "quic_quiescent_fence": "18446744073709551616"
+      },
+      "schema_valid": true
+    },
+    {
+      "name": "null",
+      "extensions": {
+        "quic_quiescent_fence": null
+      },
+      "schema_valid": false
+    },
+    {
+      "name": "missing",
+      "extensions": {},
+      "schema_valid": true
+    }
+  ]
+}

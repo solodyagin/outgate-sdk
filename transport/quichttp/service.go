@@ -1,6 +1,7 @@
 package quichttp
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"sort"
@@ -23,6 +24,11 @@ type Service struct {
 	conn    *quic.Conn
 	server  *http3.Server
 	started atomic.Bool
+	gate    sync.Mutex
+	fenced  bool
+	ceiling uint64
+	active  int
+	idle    chan struct{}
 }
 
 func NewService(carrier *quiccontrol.Carrier, handler http.Handler) (*Service, error) {
@@ -38,8 +44,11 @@ func NewService(carrier *quiccontrol.Carrier, handler http.Handler) (*Service, e
 	capacity := max(1, min(limits.MaxInflight+1, limits.BufferBytes/64))
 	ids := &requestIDs{spans: make([]idSpan, 0, capacity)}
 	slots := make(chan struct{}, limits.MaxInflight)
-	s := &Service{carrier: carrier, conn: conn}
+	idle := make(chan struct{})
+	close(idle)
+	s := &Service{carrier: carrier, conn: conn, idle: idle}
 	s.server = &http3.Server{MaxHeaderBytes: limits.MaxHeaderBytes, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		s.gate.Lock()
 		id, err := requestID(req.Header)
 		if err == nil {
 			err = checkRequest(req, limits, true)
@@ -47,12 +56,28 @@ func NewService(carrier *quiccontrol.Carrier, handler http.Handler) (*Service, e
 		if err == nil {
 			err = ids.admit(id)
 		}
+		if err == nil && s.fenced && id > s.ceiling {
+			err = ErrRequest
+		}
 		if err != nil {
+			s.gate.Unlock()
 			code, reason := quiccontrol.CodeProtocol, "protocol_error"
 			if err == ErrBusy {
 				code, reason = 0x4f475407, "quota_exceeded"
 			}
 			_ = conn.CloseWithError(code, reason)
+			return
+		}
+		if s.fenced {
+			s.gate.Unlock()
+			// G's negotiated quiescent fence proves this late request is already
+			// canceled/completed. Take over without sending response headers.
+			stream, err := w.(http3.HTTPStreamer).HTTPStream()
+			if err != nil {
+				panic(http.ErrAbortHandler)
+			}
+			stream.CancelRead(quic.StreamErrorCode(http3.ErrCodeRequestCanceled))
+			stream.CancelWrite(quic.StreamErrorCode(http3.ErrCodeRequestCanceled))
 			return
 		}
 		for name := range req.Header {
@@ -62,18 +87,57 @@ func NewService(carrier *quiccontrol.Carrier, handler http.Handler) (*Service, e
 		}
 		select {
 		case slots <- struct{}{}:
-			defer func() { <-slots }()
+			if s.active == 0 {
+				s.idle = make(chan struct{})
+			}
+			s.active++
+			defer func() {
+				<-slots
+				s.gate.Lock()
+				s.active--
+				if s.active == 0 {
+					close(s.idle)
+				}
+				s.gate.Unlock()
+			}()
 		default:
+			s.gate.Unlock()
 			_ = req.Body.Close()
 			http.Error(w, "request capacity exhausted", http.StatusServiceUnavailable)
 			return
 		}
+		s.gate.Unlock()
 		if carrier.Err() != nil {
 			panic(http.ErrAbortHandler)
 		}
 		handler.ServeHTTP(w, req)
 	})}
 	return s, nil
+}
+
+// Quiesce consumes a verified, negotiated G-origin quiescent fence. The caller
+// validates capability/direction and command ledger before calling it. It stops
+// handler admission immediately, resets late already-canceled IDs <= lastID,
+// rejects IDs above the ceiling, and waits for actual handler cleanup. Timeout
+// never reopens admission; the lifecycle owner must then close the carrier.
+func (s *Service) Quiesce(ctx context.Context, lastID uint64) error {
+	s.gate.Lock()
+	if s.fenced && lastID > s.ceiling {
+		s.gate.Unlock()
+		return v1.ErrProtocol
+	}
+	s.fenced = true
+	s.ceiling = lastID
+	idle := s.idle
+	s.gate.Unlock()
+	select {
+	case <-idle:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.carrier.Done():
+		return s.carrier.Err()
+	}
 }
 
 // Serve blocks for the connection lifetime. Only the registered reverse

@@ -34,6 +34,8 @@ Session codecs проверяют положительные u64 sequence/comman
 
 Для QUIC режим `NativeStreams` учитывает concurrency непрозрачными leases, без WSS credit/framing. Завершение обоих направлений сообщает `quichttp.RoundTripWithCompletion`; cleanup и повторное Begin блокируются до возврата старых leases. Сериализацию native starts относительно control drain/fence должен обеспечить adapter отдельно.
 
+Wire minor 1 добавляет optional required-by-negotiation capability `quic_quiescent_fence`: frozen logical request-ID watermark передаётся только после остановки G admission и completion обоих направлений. `Gateway.Pause`/`Service.Quiesce` обеспечивают HTTP admission/cleanup primitives; sessionstate проверяет marker/negotiation/quiescence. Minor-0 fixtures/ALPN/bootstrap bytes сохраняются. Service-side control driver/прикладной Client остаётся отдельной интеграцией.
+
 ## HTTP signatures и replay interface
 
 Пакет [`httpsig`](httpsig/README.md) реализует фиксированный Outgate RFC 9421 HMAC-SHA256 профиль: два legs, exact component coverage/order, bounded Structured Fields/HTTP metadata/context, nonce generation и временное окно. Все 4 существующих signature vectors проверяются на Go без изменения corpus. Scheme задаётся явно; authority нормализуется по RFC, исходный публичный URI и query сохраняются. Body API не принимает и не читает.
