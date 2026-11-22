@@ -8,6 +8,7 @@ permissions:
 jobs:
   sdk:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -27,13 +28,13 @@ jobs:
         env:
           GOWORK: 'off'
       - run: python -B tests/verify_sbom.py
-      - run: go test ./...
+      - run: python tests/run_go_tests.py ./...
         env:
           GOWORK: 'off'
       - run: go vet ./...
         env:
           GOWORK: 'off'
       - if: runner.os == 'Linux'
-        run: go test -race ./...
+        run: python tests/run_go_tests.py -race ./...
         env:
           GOWORK: 'off'
