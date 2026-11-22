@@ -1,0 +1,196 @@
+{
+  "$schema": "https://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "name": "Outgate SDK test dependency inventory",
+      "description": "Union of compiled SDK test dependencies on linux/amd64 and windows/amd64; not a release binary SBOM."
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:golang/github.com/quic-go/qpack@v0.6.0",
+      "name": "github.com/quic-go/qpack",
+      "version": "v0.6.0",
+      "purl": "pkg:golang/github.com/quic-go/qpack@v0.6.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "outgate:go:sum",
+          "value": "h1:g7W+BMYynC1LbYLSqRt8PBg5Tgwxn214ZZR34VIOjz8="
+        },
+        {
+          "name": "outgate:platform",
+          "value": "linux/amd64"
+        },
+        {
+          "name": "outgate:platform",
+          "value": "windows/amd64"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:golang/github.com/quic-go/quic-go@v0.65.0",
+      "name": "github.com/quic-go/quic-go",
+      "version": "v0.65.0",
+      "purl": "pkg:golang/github.com/quic-go/quic-go@v0.65.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "outgate:go:sum",
+          "value": "h1:BJQSjdTvLPLmWtaCupUphRbgxgpZhdO/GMpr9Eoe3B4="
+        },
+        {
+          "name": "outgate:platform",
+          "value": "linux/amd64"
+        },
+        {
+          "name": "outgate:platform",
+          "value": "windows/amd64"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:golang/golang.org/x/crypto@v0.59.0",
+      "name": "golang.org/x/crypto",
+      "version": "v0.59.0",
+      "purl": "pkg:golang/golang.org/x/crypto@v0.59.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "outgate:go:sum",
+          "value": "h1:xS2jhqYbzNrpvkWP2YTDf4TJwBy3ykR03i8vFDxEc7c="
+        },
+        {
+          "name": "outgate:platform",
+          "value": "linux/amd64"
+        },
+        {
+          "name": "outgate:platform",
+          "value": "windows/amd64"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:golang/golang.org/x/net@v0.63.0",
+      "name": "golang.org/x/net",
+      "version": "v0.63.0",
+      "purl": "pkg:golang/golang.org/x/net@v0.63.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "outgate:go:sum",
+          "value": "h1:HCoTmNh9EpD1PpK8gBNFY4gcTY4N+KQEO8ylfIKqFJ0="
+        },
+        {
+          "name": "outgate:platform",
+          "value": "linux/amd64"
+        },
+        {
+          "name": "outgate:platform",
+          "value": "windows/amd64"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:golang/golang.org/x/sys@v0.50.0",
+      "name": "golang.org/x/sys",
+      "version": "v0.50.0",
+      "purl": "pkg:golang/golang.org/x/sys@v0.50.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "outgate:go:sum",
+          "value": "h1:dkKZEFTEKaLr1sjhs0WiKqoi8Jj5nHbS3Njmx1UoMJs="
+        },
+        {
+          "name": "outgate:platform",
+          "value": "linux/amd64"
+        },
+        {
+          "name": "outgate:platform",
+          "value": "windows/amd64"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:golang/golang.org/x/text@v0.44.0",
+      "name": "golang.org/x/text",
+      "version": "v0.44.0",
+      "purl": "pkg:golang/golang.org/x/text@v0.44.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "outgate:go:sum",
+          "value": "h1:YItdp/mQNGnsmrgpcdA5yQ3bnRxCfo/Tj/iByGW9GGo="
+        },
+        {
+          "name": "outgate:platform",
+          "value": "linux/amd64"
+        },
+        {
+          "name": "outgate:platform",
+          "value": "windows/amd64"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "Go standard library",
+      "version": "1.27.4",
+      "purl": "pkg:generic/go-stdlib@1.27.4",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ]
+    }
+  ]
+}

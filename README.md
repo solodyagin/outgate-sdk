@@ -1,6 +1,6 @@
 # Outgate SDK: начало реализации
 
-Самостоятельный модуль `github.com/solodyagin/outgate-sdk`: [solodyagin/outgate-sdk](https://github.com/solodyagin/outgate-sdk). Прикладной `client`, transport adapters и versioned release ещё отсутствуют.
+Самостоятельный модуль `github.com/solodyagin/outgate-sdk`: [solodyagin/outgate-sdk](https://github.com/solodyagin/outgate-sdk). Реализована первая часть QUIC adapter — bootstrap и stream 0 carrier. Прикладной `client`, полный HTTP/3/WSS adapters и versioned release ещё отсутствуют.
 
 `protocol/v1` предоставляет:
 
@@ -20,7 +20,7 @@
 
 `DecodeChunk` возвращает payload, ссылающийся на исходный message buffer. WSS adapter обязан ограничить assembled message до allocation и не переиспользовать buffer до consumption. Wire-лимит chunk не заменяет выданный receiver credit.
 
-Пакеты не открывают sockets и не содержат SQL, registry, RBAC или gateway dependencies.
+Пакеты `protocol/v1`, `wssstate`, `sessionstate` и `httpsig` не открывают sockets и не содержат SQL, registry, RBAC или gateway dependencies.
 
 Session codecs проверяют положительные u64 sequence/command_id, observed_at 0…253402300799, boolean ready, закрытый status code enum, deadline_ms 1…30000 и формат command code. Они не проверяют рост sequence, freshness/security readiness, уникальность command_id, соответствие ack, starts fence или действующий deadline; для этого нужна session state machine. Команды не выполняют I/O и не запускают reconnect.
 
@@ -38,16 +38,21 @@ Session codecs проверяют положительные u64 sequence/comman
 
 Production включён по умолчанию. Sign возвращает signature headers; Verify подтверждает только profile/HMAC/time и не создаёт trusted user context. После внешних transport/grant/JWT/route/delegation/revision/instance checks отдельный Verified.Reserve атомарно резервирует nonce через ReplayStore перед dispatch. Durable SQL backend/recovery, JWT/context semantic equality, HTTP adapters и production security integration ещё не реализованы; volatile fallback отсутствует.
 
+## QUIC bootstrap
+
+[`transport/quiccontrol`](transport/quiccontrol/README.md) выполняет register/ack на stream 0 существующего quic-go connection с verified TLS 1.3, production mTLS, явным development mode и ограниченными deadlines. Gateway authorization/durable commit передаются обязательным callback. Carrier сериализует записи, ограничивает read-ahead, проверяет schema/направления session messages и закрывает connection при FIN/reset/ошибке. HTTP/3 поверх того же connection проверен loopback-тестами; полный adapter, listener/dialer, lifecycle integration и прикладной Client остаются в работе.
+
 ## Проверка
 
-Нужны Go 1.27.4 и Python 3.12+. Внешних Go dependencies нет; `go.sum` не требуется. Gateway checkout не нужен: тесты используют локальные schema/fixtures ([происхождение snapshot](docs/contract-snapshot.md)).
+Нужны Go 1.27.4 и Python 3.12+. QUIC carrier добавляет закреплённые [dependencies, лицензии и SBOM](docs/dependencies.md). Первичная загрузка требует сети; после заполнения module cache можно задать `GOPROXY=off`. Четыре пакета без transport сохраняют standard-library-only граф. Gateway checkout не нужен: тесты используют локальные schema/fixtures ([происхождение snapshot](docs/contract-snapshot.md)).
 
 Из корня SDK, Linux:
 
 ```bash
 python3 tests/fixtures/protocol/v1/verify.py
-GOWORK=off GOPROXY=off go test -race ./...
-GOWORK=off GOPROXY=off go vet ./...
+GOWORK=off go test -race ./...
+GOWORK=off go vet ./...
+python3 -B tests/verify_sbom.py
 ```
 
 Windows PowerShell:
@@ -55,9 +60,9 @@ Windows PowerShell:
 ```powershell
 python tests/fixtures/protocol/v1/verify.py
 $env:GOWORK = 'off'
-$env:GOPROXY = 'off'
 go test ./...
 go vet ./...
+python -B tests/verify_sbom.py
 ```
 
 Фаззинг из корня SDK:
