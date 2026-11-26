@@ -14,3 +14,5 @@ diff -r tests/fixtures/protocol/v1 ../outgate-sdk/tests/fixtures/protocol/v1
 ```
 
 SDK tests используют только локальный snapshot; parent checkout, сеть, локальные replace и go.work не требуются. Python verifier выполняет sanity checks, а не полную JSON Schema validation или adapter integration.
+
+Discovery v1 snapshot от 2026-11-26: gateway revision `95f688e877bcd644e9c6bcc9c8dcd6bba314ce05`, `docs/discovery.schema.json` и `tests/fixtures/discovery/v1/` скопированы побайтово. Новая service-listener response schema не меняет tunnel minor/ALPN/control corpus. Codec tests используют только SDK checkout; gateway выполняет полную JSON Schema validation в CI, а `python tests/fixtures/discovery/v1/verify.py` — переносимую offline sanity-проверку response fixtures.

@@ -1,0 +1,87 @@
+{
+  "positive": [
+    {
+      "service_id": "reports-service",
+      "route_revision": "42",
+      "mounts": {
+        "api": {
+          "path": "/api/v2",
+          "path_mode": "strip"
+        },
+        "reports": {
+          "path": "/отчёты",
+          "path_mode": "preserve"
+        }
+      }
+    },
+    {
+      "service_id": "frontend",
+      "route_revision": "18446744073709551615",
+      "mounts": {
+        "web": {
+          "path": "/",
+          "path_mode": "preserve"
+        }
+      }
+    },
+    {
+      "service_id": "reports-service",
+      "route_revision": "43",
+      "mounts": {}
+    }
+  ],
+  "negative": [
+    {
+      "name": "zero_revision",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"0\",\"mounts\":{\"api\":{\"path\":\"/api/v2\",\"path_mode\":\"strip\"},\"reports\":{\"path\":\"/отчёты\",\"path_mode\":\"preserve\"}}}"
+    },
+    {
+      "name": "leading_zero",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"042\",\"mounts\":{\"api\":{\"path\":\"/api/v2\",\"path_mode\":\"strip\"},\"reports\":{\"path\":\"/отчёты\",\"path_mode\":\"preserve\"}}}"
+    },
+    {
+      "name": "overflow_revision",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"18446744073709551616\",\"mounts\":{\"api\":{\"path\":\"/api/v2\",\"path_mode\":\"strip\"},\"reports\":{\"path\":\"/отчёты\",\"path_mode\":\"preserve\"}}}"
+    },
+    {
+      "name": "numeric_revision",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":42,\"mounts\":{\"api\":{\"path\":\"/api/v2\",\"path_mode\":\"strip\"},\"reports\":{\"path\":\"/отчёты\",\"path_mode\":\"preserve\"}}}"
+    },
+    {
+      "name": "unknown",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"42\",\"mounts\":{\"api\":{\"path\":\"/api/v2\",\"path_mode\":\"strip\"},\"reports\":{\"path\":\"/отчёты\",\"path_mode\":\"preserve\"}},\"instances\":[]}"
+    },
+    {
+      "name": "mount_mode",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"42\",\"mounts\":{\"api\":{\"path\":\"/api/v2\",\"path_mode\":\"unknown\"}}}"
+    },
+    {
+      "name": "trailing_slash",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"42\",\"mounts\":{\"api\":{\"path\":\"/api/v2/\",\"path_mode\":\"strip\"}}}"
+    },
+    {
+      "name": "dot_segment",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"42\",\"mounts\":{\"api\":{\"path\":\"/api/../v2\",\"path_mode\":\"strip\"}}}"
+    },
+    {
+      "name": "encoded_prefix",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"42\",\"mounts\":{\"api\":{\"path\":\"/api/%76\",\"path_mode\":\"strip\"}}}"
+    },
+    {
+      "name": "mount_unknown",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"42\",\"mounts\":{\"api\":{\"path\":\"/api/v2\",\"path_mode\":\"strip\",\"ready\":true}}}"
+    },
+    {
+      "name": "mount_null",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"42\",\"mounts\":null}"
+    },
+    {
+      "name": "duplicate_key",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"42\",\"route_revision\":\"43\",\"mounts\":{}}"
+    },
+    {
+      "name": "surrogate",
+      "json": "{\"service_id\":\"reports-service\",\"route_revision\":\"42\",\"mounts\":{\"api\":{\"path\":\"/\\ud800\",\"path_mode\":\"strip\"}}}"
+    }
+  ]
+}

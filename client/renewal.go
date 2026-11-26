@@ -14,15 +14,17 @@ import (
 // Run owns this state. The sole acquisition worker is joined before the next
 // Connect or final clear; the connector's slot also serializes source access.
 type quicRenewal struct {
-	config            QUICConfig
-	register          v1.Register
-	slot              chan struct{}
-	generation        uint64
-	fingerprint       [32]byte
-	expiry, refreshAt time.Time
-	pending           *CredentialSnapshot
-	httpCertificate   tls.Certificate
-	httpGrantID       string
+	config              QUICConfig
+	register            v1.Register
+	slot                chan struct{}
+	generation          uint64
+	fingerprint         [32]byte
+	expiry, refreshAt   time.Time
+	pending             *CredentialSnapshot
+	httpCertificate     tls.Certificate
+	httpGrantID         string
+	httpDiscoveryBearer string
+	httpEpoch           uint64
 }
 
 func earlierDeadline(a, b time.Time) time.Time {

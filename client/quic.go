@@ -245,6 +245,13 @@ func newQUICConnector(config QUICConfig, renewal *quicRenewal) (Connect, error) 
 			renewal.httpCertificate = snapshot.Certificate
 			renewal.httpGrantID = string(snapshot.Credential[:bytes.IndexByte(snapshot.Credential, '.')])
 		}
+		if renewal != nil {
+			renewal.httpEpoch++
+			if config.Development {
+				renewal.httpDiscoveryBearer = string(snapshot.Credential)
+				renewal.expiry = options.SecurityDeadline
+			}
+		}
 		return carrier, options, nil
 	}, nil
 }

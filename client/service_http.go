@@ -28,12 +28,13 @@ type HMACKey struct {
 
 // ServiceHTTPConfig enables ordinary background HTTPS calls with Config.QUIC.
 // ServerRoots is explicit service-listener trust, separate from tunnel trust.
-// User delegation, discovery and WebSocket upgrades are not supported yet.
+// Discovery uses a separate bounded authenticated GET; user delegation and WebSocket upgrades are not supported yet.
 type ServiceHTTPConfig struct {
 	ServerRoots                                                              *x509.CertPool
 	SigningKey                                                               HMACKey
 	MaxConcurrent                                                            int
 	DialTimeout, TLSHandshakeTimeout, ResponseHeaderTimeout, BodyIdleTimeout time.Duration
+	DiscoveryTimeout                                                         time.Duration
 }
 
 type targetServiceKey struct{}
@@ -51,6 +52,7 @@ type serviceHTTPState struct {
 	development bool
 	active      map[*serviceHTTPCall]struct{}
 	changed     chan struct{}
+	discovery   discoveryCache
 }
 
 func newServiceHTTP(config *ServiceHTTPConfig, quic *QUICConfig) (*serviceHTTPState, error) {
@@ -68,8 +70,8 @@ func newServiceHTTP(config *ServiceHTTPConfig, quic *QUICConfig) (*serviceHTTPSt
 	if c.MaxConcurrent < 1 || c.MaxConcurrent > 1000 {
 		return bad()
 	}
-	durations := []*time.Duration{&c.DialTimeout, &c.TLSHandshakeTimeout, &c.ResponseHeaderTimeout, &c.BodyIdleTimeout}
-	defaults := []time.Duration{5 * time.Second, 5 * time.Second, 60 * time.Second, 60 * time.Second}
+	durations := []*time.Duration{&c.DialTimeout, &c.TLSHandshakeTimeout, &c.ResponseHeaderTimeout, &c.BodyIdleTimeout, &c.DiscoveryTimeout}
+	defaults := []time.Duration{5 * time.Second, 5 * time.Second, 60 * time.Second, 60 * time.Second, 5 * time.Second}
 	for i, d := range durations {
 		if *d == 0 {
 			*d = defaults[i]
@@ -164,8 +166,9 @@ func (c *Client) ServiceHTTPClient(gatewayURL string) (*http.Client, error) {
 }
 
 type serviceHTTPTransport struct {
-	client *Client
-	origin string
+	client    *Client
+	origin    string
+	discovery bool
 }
 
 func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Response, err error) {
@@ -196,7 +199,12 @@ func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Resp
 		c.mu.Unlock()
 		return nil, ErrClientNotReady
 	}
+	if binding, ok := req.Context().Value(discoveryBindingKey{}).(discoveryBinding); ok && (binding.generation != c.renewal.httpEpoch || binding.key.target != target) {
+		c.mu.Unlock()
+		return nil, &Error{Code: DiscoveryUnavailable}
+	}
 	certificate, grantID := c.renewal.httpCertificate, c.renewal.httpGrantID
+	bearer := c.renewal.httpDiscoveryBearer
 	deadline := earlierDeadline(c.renewal.expiry, c.service.Snapshot().Deadline)
 	call, err := c.http.acquire(req.Context(), deadline)
 	c.mu.Unlock()
@@ -209,22 +217,32 @@ func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Resp
 		}
 	}()
 	config := c.http.config
-	headers = append(headers, v1.Header{"x-outgate-caller-service", c.http.caller}, v1.Header{"x-outgate-target-service", target}, v1.Header{"x-outgate-context-headers", "[]"})
-	if !c.http.development {
-		headers = append(headers, v1.Header{"x-outgate-hop-limit", "8"}, v1.Header{"x-outgate-deployment-grant-id", grantID})
-	}
-	profile, _ := httpsig.New(httpsig.Config{Leg: httpsig.Call, Development: c.http.development})
+	var signature httpsig.Headers
 	method := req.Method
 	if method == "" {
 		method = "GET"
 	}
-	authority := req.Host
-	if authority == "" {
-		authority = req.URL.Host
-	}
-	signature, signErr := profile.Sign(httpsig.Request{Method: method, Scheme: "https", Authority: authority, RawURI: req.URL.RequestURI(), Headers: headers}, config.SigningKey.ID, config.SigningKey.Secret, time.Now())
-	if signErr != nil {
-		return nil, &Error{Code: InvalidRequest}
+	if t.discovery {
+		if c.http.development {
+			headers = append(headers, v1.Header{"authorization", "Bearer " + bearer})
+		} else {
+			headers = append(headers, v1.Header{"x-outgate-deployment-grant-id", grantID})
+		}
+	} else {
+		headers = append(headers, v1.Header{"x-outgate-caller-service", c.http.caller}, v1.Header{"x-outgate-target-service", target}, v1.Header{"x-outgate-context-headers", "[]"})
+		if !c.http.development {
+			headers = append(headers, v1.Header{"x-outgate-hop-limit", "8"}, v1.Header{"x-outgate-deployment-grant-id", grantID})
+		}
+		profile, _ := httpsig.New(httpsig.Config{Leg: httpsig.Call, Development: c.http.development})
+		authority := req.Host
+		if authority == "" {
+			authority = req.URL.Host
+		}
+		var signErr error
+		signature, signErr = profile.Sign(httpsig.Request{Method: method, Scheme: "https", Authority: authority, RawURI: req.URL.RequestURI(), Headers: headers}, config.SigningKey.ID, config.SigningKey.Secret, time.Now())
+		if signErr != nil {
+			return nil, &Error{Code: InvalidRequest}
+		}
 	}
 	clone := req.Clone(call.ctx)
 	clone.Method = method
@@ -234,8 +252,10 @@ func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Resp
 	for _, h := range headers {
 		clone.Header.Add(h[0], h[1])
 	}
-	clone.Header.Set("Signature-Input", signature.SignatureInput)
-	clone.Header.Set("Signature", signature.Signature)
+	if !t.discovery {
+		clone.Header.Set("Signature-Input", signature.SignatureInput)
+		clone.Header.Set("Signature", signature.Signature)
+	}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, RootCAs: config.ServerRoots, ServerName: req.URL.Hostname(), NextProtos: []string{"http/1.1"}, SessionTicketsDisabled: true}
 	if !c.http.development {
 		tlsConfig.Certificates = []tls.Certificate{certificate}
@@ -258,6 +278,11 @@ func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Resp
 	if response.StatusCode == http.StatusSwitchingProtocols {
 		_ = response.Body.Close()
 		return nil, &Error{Code: ProtocolFailure}
+	}
+	if response.StatusCode == http.StatusConflict {
+		if binding, ok := req.Context().Value(discoveryBindingKey{}).(discoveryBinding); ok {
+			c.http.discovery.invalidate(binding.key)
+		}
 	}
 	if response.Body == nil || response.Body == http.NoBody {
 		call.finish()

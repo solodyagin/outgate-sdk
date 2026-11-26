@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://outgate.example/spec/discovery/v1/schema.json",
+  "title": "Outgate service mount discovery response",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "service_id": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    },
+    "route_revision": {
+      "$ref": "https://outgate.example/spec/protocol/v1/control.schema.json#/$defs/positive_u64"
+    },
+    "mounts": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "path_mode"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": "^(?!.*//)(?!.*[/]\\.{1,2}(?:/|$))/[^\\s%?#\\\\\\u0000-\\u001f\\u007f-\\u009f]*$(?![\\s\\S])",
+            "description": "Runtime проверяет байтовый предел, нормализацию префикса и разрешение на корень."
+          },
+          "path_mode": {
+            "enum": [
+              "preserve",
+              "strip"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "service_id",
+    "route_revision",
+    "mounts"
+  ]
+}

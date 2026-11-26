@@ -34,6 +34,8 @@ const (
 	CallbackFailed        Code = "callback_failed"
 	InvalidRequest        Code = "invalid_request"
 	CallQuotaExceeded     Code = "quota_exceeded"
+	DiscoveryUnavailable  Code = "discovery_unavailable"
+	MountNotFound         Code = "mount_not_found"
 )
 
 // Error exposes a safe code. Unwrap is for internal diagnostics only; an
