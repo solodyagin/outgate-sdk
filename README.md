@@ -40,11 +40,15 @@ Wire minor 1 добавляет optional required-by-negotiation capability `qui
 
 Пакет [`httpsig`](httpsig/README.md) реализует фиксированный Outgate RFC 9421 HMAC-SHA256 профиль: два legs, exact component coverage/order, bounded Structured Fields/HTTP metadata/context, nonce generation и временное окно. Все 4 существующих signature vectors проверяются на Go без изменения corpus. Scheme задаётся явно; authority нормализуется по RFC, исходный публичный URI и query сохраняются. Body API не принимает и не читает.
 
-Production включён по умолчанию. Sign возвращает signature headers; Verify подтверждает только profile/HMAC/time и не создаёт trusted user context. После внешних transport/grant/JWT/route/delegation/revision/instance checks отдельный Verified.Reserve атомарно резервирует nonce через ReplayStore перед dispatch. Durable SQL backend/recovery, JWT/context semantic equality, HTTP adapters и production security integration ещё не реализованы; volatile fallback отсутствует.
+Production включён по умолчанию. Sign возвращает signature headers; Verify подтверждает только profile/HMAC/time и не создаёт trusted user context. После внешних transport/grant/JWT/route/delegation/revision/instance checks отдельный Verified.Reserve атомарно резервирует nonce через ReplayStore перед dispatch. JWT/context semantic equality и expected delivery binding реализованы отдельным [delivery verifier](delivery/README.md). Durable SQL backend/recovery, HTTP middleware и production security integration ещё не реализованы; volatile fallback отсутствует.
 
 ## Issuer JWT delegation
 
 Пакет [`delegation`](delegation/README.md) проверяет фиксированный RS256 профиль, typ/issuer/audience/immediate actor, обязательные claims и сроки, затем извлекает явно сопоставленный user context. Ключи задаются owned snapshot со сроком не более 5 минут. [`client.WithUserAssertion`](client/user.md) подключает проверку к исходящему signed HTTPS вызову с обязательным внешним user-security callback. JWKS loading, входящий middleware и durable revocation не реализованы; security readiness по умолчанию остаётся false.
+
+## Проверка входящей доставки
+
+Пакет [`delivery`](delivery/README.md) объединяет production HMAC/JWT verification для обоих legs, semantic user equality и expected caller/target/grant/instance/version/mount binding до strip. Он не устанавливает trusted handler context и не выполняет admission автоматически: transport authorization, route/security state и durable replay reservation остаются обязательными шагами runtime.
 
 ## QUIC bootstrap
 

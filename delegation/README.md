@@ -10,6 +10,6 @@
 
 `KeySnapshot` задаёт 1…32 trusted public keys и интервал `[LoadedAt, ValidUntil)` не более 5 минут. Конструктор и `ReplaceKeys` копируют map и RSA modulus. Замена атомарна, более старый LoadedAt отклоняется; concurrent Verify безопасен. Unknown kid, просроченный или ещё не действующий snapshot дают fail-closed отказ. Snapshot expiry не продлевается локальным чтением.
 
-JWKS fetch/cache/refresh здесь отсутствуют. Приложение отвечает за аутентифицированный источник snapshot и своевременную замену; verifier не выполняет unknown-kid refresh. Это первый ограниченный профиль, не вся JWT/JWKS конфигурация gateway. Состояние user/session revocation и разрешение маршрута проверяются отдельно. Подключение к исходящему HTTPS описано в [client/user.md](../client/user.md); входящий trusted-context middleware ещё не реализован.
+JWKS fetch/cache/refresh здесь отсутствуют. Приложение отвечает за аутентифицированный источник snapshot и своевременную замену; verifier не выполняет unknown-kid refresh. Это первый ограниченный профиль, не вся JWT/JWKS конфигурация gateway. Состояние user/session revocation и разрешение маршрута проверяются отдельно. Подключение к исходящему HTTPS описано в [client/user.md](../client/user.md); semantic equality входящих signed headers реализует [delivery](../delivery/README.md); trusted-context middleware ещё не реализован.
 
 Тесты включают подписанные negative cases, key/claim-map ownership, stale/unknown keys, подмену алгоритма/issuer/audience/actor, time bounds, duplicate JSON и fuzz target `FuzzAssertion`.
