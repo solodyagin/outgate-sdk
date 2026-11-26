@@ -55,6 +55,7 @@ type Service struct {
 	localDrain  bool
 
 	closeIntent, stopping, graceful, reconnect bool
+	peerShutdown                               bool
 	err                                        error
 }
 
@@ -159,6 +160,15 @@ func (s *Service) ReconnectRequested() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.reconnect && s.graceful && !s.closeIntent && s.err == nil
+}
+
+// PeerShutdownRequested reports a validated final gateway drain. An owner
+// preparing local credential rotation must preserve this final intent even
+// when the commands cross. The value remains available after actual cleanup.
+func (s *Service) PeerShutdownRequested() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.peerShutdown
 }
 
 func (s *Service) SetSecurity(ready bool, deadline time.Time) error {
@@ -315,6 +325,9 @@ func (s *Service) read() {
 		if err != nil {
 			s.stopLocked(err, false, false)
 		} else {
+			if drain, ok := message.(v1.Drain); ok && drain.Code != "credential_rotation" {
+				s.peerShutdown = true
+			}
 			if e.Reply != nil {
 				// Join an unsent local intent. Once Apply has recorded it in the
 				// writer, crossed drain commands retain both ledger obligations.

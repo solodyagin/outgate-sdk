@@ -85,16 +85,19 @@ type Client struct {
 	deadline                   time.Time
 	err                        error
 	service                    *quicsession.Service
+	renewal                    *quicRenewal
 	connectCancel              context.CancelFunc
 	wake, changed, done        chan struct{}
 }
 
 func New(config Config) (*Client, error) {
+	var renewal *quicRenewal
 	if config.QUIC != nil {
 		if config.Connect != nil || config.QUIC.Development != config.Development {
 			return nil, &Error{Code: InvalidConfig}
 		}
-		connect, err := NewQUICConnector(*config.QUIC)
+		renewal = &quicRenewal{}
+		connect, err := newQUICConnector(*config.QUIC, renewal)
 		if err != nil {
 			return nil, err
 		}
@@ -113,7 +116,7 @@ func New(config Config) (*Client, error) {
 	if config.Connect == nil || config.Handler == nil || config.ConnectTimeout <= 0 || config.ConnectTimeout > 30*time.Second || config.BackoffMin < time.Millisecond || config.BackoffMax < config.BackoffMin || config.BackoffMax > 30*time.Second {
 		return nil, &Error{Code: InvalidConfig}
 	}
-	return &Client{config: config, status: ClientStatus{State: sessionstate.Created}, wake: make(chan struct{}, 1), changed: make(chan struct{}), done: make(chan struct{})}, nil
+	return &Client{config: config, renewal: renewal, status: ClientStatus{State: sessionstate.Created}, wake: make(chan struct{}, 1), changed: make(chan struct{}), done: make(chan struct{})}, nil
 }
 
 func (c *Client) Done() <-chan struct{} { return c.done }
@@ -314,6 +317,9 @@ func (c *Client) Run(ctx context.Context) (result error) {
 	if ctx.Err() != nil {
 		c.requestClose(time.Now().Add(30 * time.Second))
 	}
+	if c.renewal != nil {
+		defer c.renewal.clear()
+	}
 	backoff := c.config.BackoffMin
 	var registration, previousID string
 	var previousGeneration uint64
@@ -384,8 +390,8 @@ func (c *Client) Run(ctx context.Context) (result error) {
 					c.statusLocked()
 					c.notifyLocked()
 					c.mu.Unlock()
-					var wasReady bool
-					err, wasReady = c.serve(service)
+					var wasReady, rotated bool
+					err, wasReady, rotated = c.serve(service)
 					if wasReady {
 						backoff = c.config.BackoffMin
 					}
@@ -395,7 +401,7 @@ func (c *Client) Run(ctx context.Context) (result error) {
 					c.status.Connected = false
 					c.status.ReadySince = time.Time{}
 					c.mu.Unlock()
-					if closing || err == nil && !service.ReconnectRequested() {
+					if closing || err == nil && !rotated && !service.ReconnectRequested() {
 						if err != nil {
 							err, _ = classify(err)
 						}
@@ -403,6 +409,11 @@ func (c *Client) Run(ctx context.Context) (result error) {
 						c.finishLocked(err)
 						c.mu.Unlock()
 						return err
+					}
+					if rotated && (err == nil || errors.Is(err, sessionstate.ErrTimeout) || errors.Is(err, context.DeadlineExceeded)) && time.Now().Before(c.renewal.expiry) {
+						// A bounded drain may force the old transport closed. Actual cleanup
+						// has completed; only security/protocol failures suppress the rotation.
+						continue
 					}
 					if err == nil {
 						err = &quic.ApplicationError{Remote: true, ErrorCode: quiccontrol.CodeNormal}
@@ -441,7 +452,7 @@ func (c *Client) connect(ctx context.Context) (carrier *quiccontrol.Carrier, opt
 	return c.config.Connect(ctx)
 }
 
-func (c *Client) serve(service *quicsession.Service) (error, bool) {
+func (c *Client) serve(service *quicsession.Service) (error, bool, bool) {
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
 	var drainCancel context.CancelFunc
@@ -452,6 +463,29 @@ func (c *Client) serve(service *quicsession.Service) (error, bool) {
 	var armedDeadline time.Time
 	securityApplied := false
 	wasReady := false
+	rotated := false
+	var rotationDeadline time.Time
+	var refreshDone chan error
+	var refreshCancel context.CancelFunc
+	nextRefresh := time.Time{}
+	var refreshTimer *time.Timer
+	var refreshC <-chan time.Time
+	retry := time.Second
+	if c.renewal != nil {
+		nextRefresh = c.renewal.refreshAt
+		if !nextRefresh.IsZero() {
+			refreshTimer = time.NewTimer(max(time.Nanosecond, time.Until(nextRefresh)))
+			refreshC = refreshTimer.C
+			defer refreshTimer.Stop()
+		}
+	}
+	// Join actual callback completion before reconnect, while expiry/revoke remains independent.
+	defer func() {
+		if refreshCancel != nil {
+			refreshCancel()
+			<-refreshDone
+		}
+	}()
 	defer func() {
 		if deadlineTimer != nil {
 			deadlineTimer.Stop()
@@ -467,7 +501,26 @@ func (c *Client) serve(service *quicsession.Service) (error, bool) {
 			service.Revoke()
 			securityApplied = true
 		}
-		if closing && !revoked {
+		if closing || revoked {
+			if refreshCancel != nil {
+				refreshCancel()
+			}
+		}
+		if !closing && !revoked && !rotated && refreshDone == nil && !nextRefresh.IsZero() && !time.Now().Before(nextRefresh) && status.State != sessionstate.Draining && status.Connected {
+			currentDeadline := earlierDeadline(c.renewal.expiry, service.Snapshot().Deadline)
+			refreshCtx, cancel := context.WithDeadline(context.Background(), currentDeadline)
+			refreshCancel = cancel
+			refreshDone = make(chan error, 1)
+			refreshTimer.Stop()
+			refreshC = nil
+			go func(done chan error) { done <- c.renewal.prepare(refreshCtx) }(refreshDone)
+		}
+		if rotated {
+			if !closing || rotationDeadline.Before(deadline) {
+				deadline = rotationDeadline
+			}
+		}
+		if (closing || rotated) && !revoked {
 			if !draining {
 				draining = true
 				var drainCtx context.Context
@@ -498,20 +551,38 @@ func (c *Client) serve(service *quicsession.Service) (error, bool) {
 				<-drainDone
 			}
 			err := service.Err()
+			rotated = rotated && !service.PeerShutdownRequested()
 			c.mu.Lock()
 			closing, deadline = c.closing, c.deadline
 			revoked = c.revoked
 			c.mu.Unlock()
 			if revoked {
-				return &Error{Code: SecurityFailure, cause: sessionstate.ErrSecurity}, wasReady
+				return &Error{Code: SecurityFailure, cause: sessionstate.ErrSecurity}, wasReady, false
 			}
 			if closing && !time.Now().Before(deadline) {
-				return &Error{Code: ShutdownTimeout, cause: context.DeadlineExceeded}, wasReady
+				return &Error{Code: ShutdownTimeout, cause: context.DeadlineExceeded}, wasReady, false
 			}
 			if err == nil {
-				return nil, wasReady
+				return nil, wasReady, rotated
 			}
-			return err, wasReady
+			return err, wasReady, rotated
+		case refreshErr := <-refreshDone:
+			refreshCancel()
+			refreshCancel, refreshDone = nil, nil
+			c.mu.Lock()
+			closing, revoked = c.closing, c.revoked
+			c.mu.Unlock()
+			snapshot := service.Snapshot()
+			if refreshErr == nil && !closing && !revoked && snapshot.TransportActive && snapshot.Phase != sessionstate.Draining {
+				rotated = true
+				rotationDeadline = earlierDeadline(time.Now().Add(30*time.Second), snapshot.Deadline)
+			} else {
+				nextRefresh = time.Now().Add(renewalRetry(retry))
+				refreshTimer.Reset(max(time.Nanosecond, time.Until(nextRefresh)))
+				refreshC = refreshTimer.C
+				retry = min(30*time.Second, retry*2)
+			}
+		case <-refreshC:
 		case <-tick.C:
 		case <-c.wake:
 		case <-deadlineC:

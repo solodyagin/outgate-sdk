@@ -52,6 +52,10 @@ func (e *credentialError) Unwrap() error { return e.cause }
 // obtains a whole new snapshot, verifies it, dials and registers on native QUIC.
 // The one source slot stays occupied until an uncooperative invocation returns.
 func NewQUICConnector(config QUICConfig) (Connect, error) {
+	return newQUICConnector(config, nil)
+}
+
+func newQUICConnector(config QUICConfig, renewal *quicRenewal) (Connect, error) {
 	invalid := func() (Connect, error) { return nil, &Error{Code: InvalidConfig} }
 	host, port, err := net.SplitHostPort(config.Address)
 	number, portErr := strconv.ParseUint(port, 10, 16)
@@ -106,6 +110,9 @@ func NewQUICConnector(config QUICConfig) (Connect, error) {
 	slot := make(chan struct{}, 1)
 	var highWater uint64
 	var fingerprint [32]byte
+	if renewal != nil {
+		renewal.config, renewal.register, renewal.slot = config, r, slot
+	}
 	return func(parent context.Context) (carrier *quiccontrol.Carrier, options quicsession.Options, err error) {
 		// Serializes the source and its generation ledger, including standalone
 		// concurrent Connect calls. Waiting callers don't spawn source goroutines.
@@ -133,7 +140,13 @@ func NewQUICConnector(config QUICConfig) (Connect, error) {
 				err = &Error{Code: SecurityFailure}
 			}
 		}()
-		snapshot, sourceErr := callCredentialSource(ctx, config.Credentials)
+		var snapshot CredentialSnapshot
+		var sourceErr error
+		if renewal != nil && renewal.pending != nil {
+			snapshot = *renewal.pending // copied below, retained across failed dial attempts
+		} else {
+			snapshot, sourceErr = callCredentialSource(ctx, config.Credentials)
+		}
 		if deadline, _ := ctx.Deadline(); ctx.Err() != nil || !time.Now().Before(deadline) {
 			cause := ctx.Err()
 			if cause == nil {
@@ -223,6 +236,12 @@ func NewQUICConnector(config QUICConfig) (Connect, error) {
 		options = config.Session
 		if !deadline.IsZero() && (options.SecurityDeadline.IsZero() || deadline.Before(options.SecurityDeadline)) {
 			options.SecurityDeadline = deadline
+		}
+		if renewal != nil && !config.Development {
+			renewal.clear()
+			renewal.generation, renewal.fingerprint = snapshot.Generation, snapshotFingerprint(snapshot)
+			renewal.expiry = earlierDeadline(time.Unix(*ack.CredentialExpiresAt, 0), options.SecurityDeadline)
+			renewal.refreshAt = renewalTime(now, renewal.expiry)
 		}
 		return carrier, options, nil
 	}, nil

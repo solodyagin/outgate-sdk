@@ -23,3 +23,5 @@ GOWORK=off go vet ./...
 ```
 
 Loopback tests используют verified mTLS и native QUIC/HTTP3: fail-closed readiness, immutable bootstrap snapshots, G/S/crossed drain, rotation/final intent, callback timeout/panic/thresholds, late success, cancellation-ignoring callback/handler, expiry и invalid command ledger/fences. Тестовые authorization callbacks не подтверждают production admission.
+
+`PeerShutdownRequested()` сохраняет validated final gateway drain (code кроме credential_rotation), в том числе после actual cleanup. Владелец, подготовивший локальную credential rotation, проверяет этот final intent перед новым dial; crossed peer shutdown не превращается в reconnect. Public Client использует этот сигнал для приоритета gateway shutdown над proactive renewal.
