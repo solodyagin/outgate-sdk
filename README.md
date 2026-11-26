@@ -1,5 +1,7 @@
 # Outgate SDK: начало реализации
 
+Для разработки: [карта контекста](docs/context-map.md) и [локальные проверки](docs/checks.md).
+
 Самостоятельный модуль `github.com/solodyagin/outgate-sdk`: [solodyagin/outgate-sdk](https://github.com/solodyagin/outgate-sdk). QUIC adapter включает bootstrap, stream 0 carrier и обычный streaming HTTP/3. Service-side control driver связывает readiness и graceful shutdown с реальными handlers. Пакет [`client`](client/README.md) реализует lifecycle и последовательный reconnect через явный Connect callback. Встроенный [QUIC dialer и static/callback credential source](client/quic.md) подключают atomic snapshot. File provider/proactive renewal и обычный фоновый [ServiceHTTPClient](client/service_http.md) реализованы. [Discovery helper](client/discovery.md) реализован; [исходящая JWT-делегация](client/user.md) поддерживает RS256 и явные snapshots ключей; входящий user middleware, JWKS loader, WebSocket/Hijacker, WSS adapter и versioned release остаются в работе.
 
 `protocol/v1` предоставляет:

@@ -23,8 +23,7 @@ jobs:
           python-version: '3.12'
       - run: python tests/fixtures/protocol/v1/verify.py
       - run: python tests/fixtures/discovery/v1/verify.py
-      - run: python -B -m unittest discover -s tests -p "test_check_local_paths.py"
-      - run: python -B -m unittest discover -s tests -p "test_run_go_tests.py"
+      - run: python -B -m unittest discover -s tests -p "test_*.py"
       - run: python -B tests/check_local_paths.py
       - run: go mod verify
         env:
