@@ -22,14 +22,16 @@ import (
 type Code string
 
 const (
-	AlreadyStarted   Code = "already_started"
-	ClientClosed     Code = "client_closed"
-	ClientNotReady   Code = "client_not_ready"
-	InvalidConfig    Code = "invalid_config"
-	SecurityFailure  Code = "security_failure"
-	ProtocolFailure  Code = "protocol_error"
-	TransportFailure Code = "transport_failure"
-	ShutdownTimeout  Code = "shutdown_timeout"
+	AlreadyStarted        Code = "already_started"
+	ClientClosed          Code = "client_closed"
+	ClientNotReady        Code = "client_not_ready"
+	InvalidConfig         Code = "invalid_config"
+	SecurityFailure       Code = "security_failure"
+	ProtocolFailure       Code = "protocol_error"
+	TransportFailure      Code = "transport_failure"
+	ShutdownTimeout       Code = "shutdown_timeout"
+	CredentialUnavailable Code = "credential_unavailable"
+	CallbackFailed        Code = "callback_failed"
 )
 
 // Error exposes a safe code. Unwrap is for internal diagnostics only; an
@@ -57,6 +59,7 @@ type Connect func(context.Context) (*quiccontrol.Carrier, quicsession.Options, e
 
 type Config struct {
 	Connect                Connect
+	QUIC                   *QUICConfig
 	Handler                http.Handler
 	Development            bool
 	ConnectTimeout         time.Duration
@@ -87,6 +90,17 @@ type Client struct {
 }
 
 func New(config Config) (*Client, error) {
+	if config.QUIC != nil {
+		if config.Connect != nil || config.QUIC.Development != config.Development {
+			return nil, &Error{Code: InvalidConfig}
+		}
+		connect, err := NewQUICConnector(*config.QUIC)
+		if err != nil {
+			return nil, err
+		}
+		config.Connect = connect
+		config.QUIC = nil
+	}
 	if config.ConnectTimeout == 0 {
 		config.ConnectTimeout = 10 * time.Second
 	}
@@ -302,6 +316,8 @@ func (c *Client) Run(ctx context.Context) (result error) {
 	}
 	backoff := c.config.BackoffMin
 	var registration, previousID string
+	var previousGeneration uint64
+	var generationPresent bool
 	for {
 		c.mu.Lock()
 		if c.closing {
@@ -338,8 +354,14 @@ func (c *Client) Run(ctx context.Context) (result error) {
 			err = v1.ErrProtocol
 		} else {
 			r, ack, development := carrier.Registration()
+			var generation uint64
+			present := r.CredentialGeneration != nil
+			if present {
+				generation = uint64(*r.CredentialGeneration)
+			}
+			r.CredentialGeneration = nil // generation rotates; registration identity does not
 			encoded, _ := json.Marshal(r)
-			if development != c.config.Development || registration != "" && registration != string(encoded) {
+			if development != c.config.Development || registration != "" && (registration != string(encoded) || generationPresent != present || generation < previousGeneration) {
 				_ = carrier.Revoke()
 				err = sessionstate.ErrSecurity
 			} else if previousID == ack.SessionID {
@@ -352,6 +374,7 @@ func (c *Client) Run(ctx context.Context) (result error) {
 					_ = carrier.Abort()
 				} else {
 					registration, previousID = string(encoded), ack.SessionID
+					previousGeneration, generationPresent = generation, present
 					c.mu.Lock()
 					c.service = service
 					c.status.Connected = true
@@ -547,6 +570,14 @@ func classify(err error) (*Error, bool) {
 	}
 	if errors.Is(err, v1.ErrProtocol) {
 		return &Error{Code: ProtocolFailure, cause: err}, false
+	}
+	var credentials *credentialError
+	if errors.As(err, &credentials) {
+		code := credentials.code
+		if code == "" {
+			code = CredentialUnavailable
+		}
+		return &Error{Code: code, cause: credentials.cause}, true
 	}
 	var network net.Error
 	return &Error{Code: TransportFailure, cause: err}, errors.As(err, &network) || errors.Is(err, context.DeadlineExceeded)
