@@ -10,6 +10,9 @@ def escaped(value):
 
 
 def main():
+    # Windows redirected stdout can default to a legacy code page. Go test
+    # emits UTF-8, including Unicode subtest names and request diagnostics.
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     tail = collections.deque(maxlen=20)
     with subprocess.Popen(
         ["go", "test", "-json", *sys.argv[1:]], stdout=subprocess.PIPE,
