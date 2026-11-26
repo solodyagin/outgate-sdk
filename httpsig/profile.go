@@ -21,10 +21,12 @@ import (
 )
 
 const (
-	Call               = "outgatecall"
-	Gateway            = "outgategateway"
-	maxHeaders         = 32768
-	maxTimestamp int64 = 253402300799
+	Call                       = "outgatecall"
+	Gateway                    = "outgategateway"
+	maxHeaders                 = 32768
+	maxTimestamp         int64 = 253402300799
+	signatureTTLSeconds        = 60
+	signatureSkewSeconds       = 30
 )
 
 var ErrAuth = errors.New("outgate: signature authentication failed")
@@ -85,7 +87,7 @@ func (p *Profile) Sign(r Request, keyID string, secret []byte, now time.Time) (H
 	if err != nil {
 		return Headers{}, err
 	}
-	return p.SignWithParams(r, Params{Created: now.Unix(), Expires: now.Unix() + 60, Nonce: nonce, KeyID: keyID}, secret)
+	return p.SignWithParams(r, Params{Created: now.Unix(), Expires: now.Unix() + signatureTTLSeconds, Nonce: nonce, KeyID: keyID}, secret)
 }
 
 // SignWithParams is deterministic; production callers must supply a fresh random

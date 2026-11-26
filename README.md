@@ -42,7 +42,7 @@ Wire minor 1 добавляет optional required-by-negotiation capability `qui
 
 Пакет [`httpsig`](httpsig/README.md) реализует фиксированный Outgate RFC 9421 HMAC-SHA256 профиль: два legs, exact component coverage/order, bounded Structured Fields/HTTP metadata/context, nonce generation и временное окно. Все 4 существующих signature vectors проверяются на Go без изменения corpus. Scheme задаётся явно; authority нормализуется по RFC, исходный публичный URI и query сохраняются. Body API не принимает и не читает.
 
-Production включён по умолчанию. Sign возвращает signature headers; Verify подтверждает только profile/HMAC/time и не создаёт trusted user context. После внешних transport/grant/JWT/route/delegation/revision/instance checks отдельный Verified.Reserve атомарно резервирует nonce через ReplayStore перед dispatch. JWT/context semantic equality и expected delivery binding реализованы отдельным [delivery verifier](delivery/README.md). Durable SQL backend/recovery и production security integration остаются в работе.
+Production включён по умолчанию. Sign возвращает signature headers; Verify подтверждает только profile/HMAC/time и не создаёт trusted user context. После внешних transport/grant/JWT/route/delegation/revision/instance checks отдельный Verified.Reserve атомарно резервирует nonce через ReplayStore перед dispatch. JWT/context semantic equality и expected delivery binding реализованы отдельным [delivery verifier](delivery/README.md). [`replay.SQLite`](replay/README.md) реализует durable replay для SQLite WAL/FULL с квотами и барьером при запуске. PostgreSQL и интеграция production control/revocation state остаются в работе.
 
 ## Issuer JWT delegation
 

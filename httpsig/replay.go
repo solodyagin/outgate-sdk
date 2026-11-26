@@ -22,6 +22,22 @@ type Reservation struct {
 	RetainUntil time.Time
 }
 
+// CreatedAt returns the signature's created timestamp as represented by the
+// fixed profile's retention window.
+func (r Reservation) CreatedAt() time.Time {
+	return r.RetainUntil.Add(-(signatureTTLSeconds + signatureSkewSeconds) * time.Second)
+}
+
+// ValidAt checks reservation metadata against the fixed profile and its time
+// window. A reservation still needs to come from a verified signature.
+func (r Reservation) ValidAt(now time.Time) bool {
+	return (r.Key.Leg == Call || r.Key.Leg == Gateway) && ValidReplayNamespace(r.Key.Namespace) &&
+		identifier(r.Key.Caller, 64) && r.RetainUntil.Nanosecond() == 0 && validTime(Params{
+		Created: r.CreatedAt().Unix(), Expires: r.RetainUntil.Unix() - signatureSkewSeconds,
+		Nonce: r.Key.Nonce, KeyID: r.Key.KeyID,
+	}, now)
+}
+
 // ReplayStore must atomically check unique key and caller/global capacity and
 // COMMIT insertion before returning nil. Live entries cannot be evicted. Return
 // ErrReplay for duplicates or ErrReplayCallerQuota for caller capacity. Global
@@ -49,7 +65,7 @@ func (v Verified) Reserve(ctx context.Context, store ReplayStore, namespace stri
 	if ctx == nil || store == nil || ctx.Err() != nil {
 		return ErrReplayUnavailable
 	}
-	entry := Reservation{Key: ReplayKey{Leg: v.leg, Namespace: namespace, Caller: v.caller, KeyID: v.keyID, Nonce: v.nonce}, RetainUntil: time.Unix(v.expires+30, 0)}
+	entry := Reservation{Key: ReplayKey{Leg: v.leg, Namespace: namespace, Caller: v.caller, KeyID: v.keyID, Nonce: v.nonce}, RetainUntil: time.Unix(v.expires+signatureSkewSeconds, 0)}
 	if err := store.Reserve(ctx, entry); err != nil {
 		if errors.Is(err, ErrReplay) {
 			return ErrReplay

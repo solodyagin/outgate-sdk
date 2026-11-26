@@ -10,6 +10,10 @@
 | golang.org/x/net | v0.63.0 | BSD-3-Clause |
 | golang.org/x/sys | v0.50.0 | BSD-3-Clause |
 | golang.org/x/text | v0.44.0 | BSD-3-Clause |
+| modernc.org/sqlite | v1.62.0 | BSD-3-Clause, вложенные уведомления в `third-party/` |
+| modernc.org/libc | v1.80.1 | BSD-3-Clause, вложенные уведомления в `third-party/` |
+
+Пакет [`replay`](../replay/README.md) использует pure-Go SQLite с движком 3.54.1. Драйвер и libc совпадают с версиями, закреплёнными в проверках gateway. Собранные модули и соответствующие лицензии Linux/Windows перечислены в SBOM. [SQLite 3.54.1](https://sqlite.org/releaselog/3_54_1.html)
 
 Версии `x/net` и `x/crypto` сохраняют security pins gateway, превышающие минимумы quic-go. Module graph не содержит reverst, gateway или локальных replace. [go.sum](../go.sum) фиксирует checksum, [CycloneDX SBOM](sbom.cdx.json) — объединённый compiled test inventory Linux/Windows amd64 и Go standard library. Это inventory SDK tests, не SBOM будущего release binary. Лицензии модулей и Go сохранены в `third-party/`; runtime binary потребует отдельной проверки своего графа и вложенных уведомлений Go/зависимостей.
 

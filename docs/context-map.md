@@ -14,6 +14,7 @@
 | Credential snapshots / dial / renewal | ТЗ 3.25, 6.5; gateway `docs/credentials.md` | [QUIC client](../client/quic.md), `client/quic.go`, `credentials*.go`, `renewal.go`, тесты; `package ./client` |
 | Signed background HTTPS / discovery | ТЗ 3.14, 3.16, 3.22; protocol 9–10 | [service HTTP](../client/service_http.md), [discovery](../client/discovery.md), соответствующие `.go`/tests; `package ./client ./protocol/v1` |
 | HMAC profile / replay proof | ТЗ 3.15, 4.6, 5.5.2; protocol 9 | [httpsig](../httpsig/README.md), `httpsig`, signature fixtures; `package ./httpsig` |
+| SQLite replay storage / recovery | ТЗ 5.5.2, 6.4 и 8.8, protocol 9.3 | [replay](../replay/README.md), `replay/sqlite.go`, `replay/schema.go`, `package ./replay ./httpsig` |
 | JWT / исходящий user context | ТЗ 3.12, 3.14–3.15, 5.5.4, 5.6; protocol 9.2–9.3 | [delegation](../delegation/README.md), [user API](../client/user.md), `delegation`, `client/user.go`; `package ./delegation ./client` |
 | Incoming delivery binding | ТЗ 3.12, 3.14–3.16, 5.5.1–5.5.5; protocol 9 | [delivery](../delivery/README.md), `delivery/verifier.go`, тесты и вызываемые `httpsig`/`delegation`; `package ./delivery ./httpsig ./delegation` |
 | Dependencies / snapshot / платформы | ТЗ 2.3, 4.7, 5.4, 5.5.7, 10.3 | [dependencies](dependencies.md), [snapshot](contract-snapshot.md), `go.mod`, SBOM, CI; `full` и отдельный Windows compile |

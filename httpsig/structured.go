@@ -139,7 +139,7 @@ func quoted(s string) (string, string, bool) {
 	return "", "", false
 }
 func validParams(p Params) bool {
-	if p.Created < 0 || p.Created > maxTimestamp-60 || p.Expires != p.Created+60 || len(p.KeyID) < 1 || len(p.KeyID) > 128 {
+	if p.Created < 0 || p.Created > maxTimestamp-signatureTTLSeconds || p.Expires != p.Created+signatureTTLSeconds || len(p.KeyID) < 1 || len(p.KeyID) > 128 {
 		return false
 	}
 	for i := 0; i < len(p.KeyID); i++ {
@@ -155,7 +155,7 @@ func validParams(p Params) bool {
 	return err == nil && len(nonce) == 16 && base64.RawURLEncoding.EncodeToString(nonce) == p.Nonce
 }
 func validTime(p Params, now time.Time) bool {
-	return !now.IsZero() && validParams(p) && !now.Before(time.Unix(p.Created-30, 0)) && !now.After(time.Unix(p.Expires+30, 0))
+	return !now.IsZero() && validParams(p) && !now.Before(time.Unix(p.Created-signatureSkewSeconds, 0)) && !now.After(time.Unix(p.Expires+signatureSkewSeconds, 0))
 }
 func serialize(names []string, p Params) string {
 	quoted := make([]string, len(names))
