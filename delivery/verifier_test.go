@@ -47,8 +47,11 @@ type fixture struct {
 }
 
 func setup(t testing.TB, leg string, user bool) fixture {
+	return setupAt(t, leg, user, time.Unix(1795723200, 0))
+}
+
+func setupAt(t testing.TB, leg string, user bool, now time.Time) fixture {
 	t.Helper()
-	now := time.Unix(1795723200, 0)
 	jwt, err := delegation.New(delegation.Config{Issuer: "https://issuer.example", Claims: delegation.ClaimMap{UserID: "sub", Roles: "roles", SessionID: "sid", Attributes: map[string]string{"tenant_id": "tenant_id"}}, Keys: delegation.KeySnapshot{Keys: map[string]*rsa.PublicKey{"issuer-1": &issuer(t).PublicKey}, LoadedAt: now.Add(-time.Second), ValidUntil: now.Add(4 * time.Minute)}})
 	if err != nil {
 		t.Fatal(err)

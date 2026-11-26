@@ -11,6 +11,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/solodyagin/outgate-sdk/delegation"
+	"github.com/solodyagin/outgate-sdk/delivery"
 	v1 "github.com/solodyagin/outgate-sdk/protocol/v1"
 )
 
@@ -41,11 +42,27 @@ func WithUserContext(ctx context.Context, user UserContext) context.Context {
 }
 func UserContextFromContext(ctx context.Context) (UserContext, bool) {
 	v, ok := ctx.Value(userContextKey{}).(localUser)
-	if !ok || !v.valid {
+	if !ok {
+		verified, _, _ := delivery.FromContext(ctx)
+		return verified.User()
+	}
+	if !v.valid {
 		return UserContext{}, false
 	}
 	copy, err := delegation.CopyUser(v.user)
 	return copy, err == nil
+}
+
+// CallerServiceFromContext returns the authenticated caller of a signed delivery.
+func CallerServiceFromContext(ctx context.Context) (string, bool) {
+	verified, _, ok := delivery.FromContext(ctx)
+	return verified.Binding().Caller, ok
+}
+
+// MountInfoFromContext returns the authenticated mount of a signed delivery.
+func MountInfoFromContext(ctx context.Context) (delivery.MountInfo, bool) {
+	_, mount, ok := delivery.FromContext(ctx)
+	return mount, ok
 }
 
 // WithUserAssertion installs only a bounded unverified token; verification is
@@ -135,6 +152,11 @@ func safeUserCheck(ctx context.Context, check func(context.Context, delegation.I
 }
 func (s *serviceHTTPState) userHeaders(call *serviceHTTPCall, ctx context.Context, target string) ([]v1.Header, error) {
 	local, hasLocal := ctx.Value(userContextKey{}).(localUser)
+	if !hasLocal && !s.development {
+		verified, _, _ := delivery.FromContext(ctx)
+		local.user, hasLocal = verified.User()
+		local.valid = hasLocal
+	}
 	assertion, hasAssertion := ctx.Value(userAssertionKey{}).(userAssertion)
 	if hasLocal && !local.valid || hasAssertion && !assertion.valid {
 		return nil, &Error{Code: InvalidRequest}

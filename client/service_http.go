@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/solodyagin/outgate-sdk/delivery"
 	"github.com/solodyagin/outgate-sdk/httpsig"
 	v1 "github.com/solodyagin/outgate-sdk/protocol/v1"
 	"github.com/solodyagin/outgate-sdk/sessionstate"
@@ -258,6 +259,15 @@ func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Resp
 			headers = append(headers, v1.Header{"x-outgate-deployment-grant-id", grantID})
 		}
 	} else {
+		hop := 8
+		if !c.http.development {
+			if verified, _, ok := delivery.FromContext(req.Context()); ok {
+				hop = verified.HopLimit() - 1
+				if hop == 0 {
+					return nil, &Error{Code: HopLimitExhausted}
+				}
+			}
+		}
 		userFields, userErr := c.http.userHeaders(call, req.Context(), target)
 		if userErr != nil {
 			return nil, userErr
@@ -265,7 +275,7 @@ func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Resp
 		headers = append(headers, userFields...)
 		headers = append(headers, v1.Header{"x-outgate-caller-service", c.http.caller}, v1.Header{"x-outgate-target-service", target})
 		if !c.http.development {
-			headers = append(headers, v1.Header{"x-outgate-hop-limit", "8"}, v1.Header{"x-outgate-deployment-grant-id", grantID})
+			headers = append(headers, v1.Header{"x-outgate-hop-limit", strconv.Itoa(hop)}, v1.Header{"x-outgate-deployment-grant-id", grantID})
 		}
 		profile, _ := httpsig.New(httpsig.Config{Leg: httpsig.Call, Development: c.http.development, AttributeHeaders: c.http.attributeNames})
 		authority := req.Host

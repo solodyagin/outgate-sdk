@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go"
+	"github.com/solodyagin/outgate-sdk/delivery"
 	v1 "github.com/solodyagin/outgate-sdk/protocol/v1"
 	"github.com/solodyagin/outgate-sdk/sessionstate"
 	"github.com/solodyagin/outgate-sdk/transport/quiccontrol"
@@ -36,6 +37,7 @@ const (
 	CallQuotaExceeded     Code = "quota_exceeded"
 	DiscoveryUnavailable  Code = "discovery_unavailable"
 	MountNotFound         Code = "mount_not_found"
+	HopLimitExhausted     Code = "hop_limit_exhausted"
 )
 
 // Error exposes a safe code. Unwrap is for internal diagnostics only; an
@@ -62,9 +64,11 @@ var (
 type Connect func(context.Context) (*quiccontrol.Carrier, quicsession.Options, error)
 
 type Config struct {
-	Connect                Connect
-	QUIC                   *QUICConfig
-	ServiceHTTP            *ServiceHTTPConfig
+	Connect     Connect
+	QUIC        *QUICConfig
+	ServiceHTTP *ServiceHTTPConfig
+	// IncomingDelivery enables the signed-only HTTPS recipient boundary.
+	IncomingDelivery       *delivery.HandlerConfig
 	Handler                http.Handler
 	Development            bool
 	ConnectTimeout         time.Duration
@@ -97,6 +101,16 @@ type Client struct {
 }
 
 func New(config Config) (*Client, error) {
+	if config.IncomingDelivery != nil {
+		if config.Development {
+			return nil, &Error{Code: InvalidConfig}
+		}
+		incoming := *config.IncomingDelivery
+		if _, err := delivery.NewHandler(incoming, config.Handler); err != nil {
+			return nil, &Error{Code: InvalidConfig, cause: err}
+		}
+		config.IncomingDelivery = &incoming
+	}
 	outgoing, err := newServiceHTTP(config.ServiceHTTP, config.QUIC)
 	if err != nil {
 		return nil, err
@@ -398,7 +412,11 @@ func (c *Client) Run(ctx context.Context) (result error) {
 				err = v1.ErrProtocol
 			} else {
 				var service *quicsession.Service
-				service, err = quicsession.NewService(carrier, c.config.Handler, options)
+				var handler http.Handler
+				handler, err = c.config.sessionHandler(r)
+				if err == nil {
+					service, err = quicsession.NewService(carrier, handler, options)
+				}
 				if err != nil {
 					_ = carrier.Abort()
 				} else {
