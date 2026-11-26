@@ -26,7 +26,7 @@ class UnicodeOutputTest(unittest.TestCase):
     def test_redirected_windows_codepage_keeps_unicode_output(self):
         text = "=== RUN TestMount/отчёты\n"
         output = io.BytesIO()
-        stream = io.TextIOWrapper(output, encoding="cp1252", errors="strict")
+        stream = io.TextIOWrapper(output, encoding="cp1252", errors="strict", newline="\n")
         lines = [json.dumps({"Action": "output", "Output": text}, ensure_ascii=False) + "\n"]
         try:
             with patch.object(runner.sys, "stdout", stream), patch.object(runner.subprocess, "Popen", return_value=Process(lines)):
