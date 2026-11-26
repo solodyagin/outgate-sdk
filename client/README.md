@@ -12,7 +12,9 @@ Production включён по умолчанию. Client требует сов�
 
 Reconnect выполняется только после полного cleanup старой session. Validated rotation hint и ограниченный набор временных connection errors допускают новую попытку. Unknown errors, protocol/security failures, отказ аутентификации и неподдерживаемый протокол terminal; retryable nack обрабатывается только для duplicate_instance/state_unavailable/server_shutdown/quota_exceeded. Exponential backoff с equal jitter по умолчанию 250ms…30s, сбрасывается после наблюдавшегося ready. Переподключение никогда не переносит и не повторяет business requests. Production `Config.QUIC` подключает [proactive credential renewal](quic.md): локально проверяет новую пару во время работы старой, затем выполняет bounded drain/actual cleanup и регистрацию закреплённого нового поколения. Ошибка/timeout provider сохраняет рабочую пару до expiry, final local/peer shutdown и revoke подавляют rotation.
 
-Это первый public lifecycle API, не завершённый прикладной SDK. Встроенный QUIC dialer и static/callback/file credential source реализованы; ServiceHTTPClient/discovery/signing integration, HTTP panic middleware, internal CONNECT/WebSocket/Hijacker и production durable security integration остаются в работе. Connect — внешняя реализация этих admission/transport checks, не фиктивная identity и не production backend.
+Это первый public lifecycle API, не завершённый прикладной SDK. Встроенный QUIC dialer и static/callback/file credential source реализованы; user delegation/discovery, HTTP panic middleware, internal CONNECT/WebSocket/Hijacker и production durable security integration остаются в работе. Connect — внешняя реализация этих admission/transport checks, не фиктивная identity и не production backend.
+
+Обычный фоновый [`ServiceHTTPClient`](service_http.md) подписывает HTTPS calls с mTLS/accepted credentials, readiness gate, streaming и без business replay. User delegation, discovery и Upgrade ещё не подключены.
 
 Проверки из корня SDK:
 

@@ -32,6 +32,8 @@ const (
 	ShutdownTimeout       Code = "shutdown_timeout"
 	CredentialUnavailable Code = "credential_unavailable"
 	CallbackFailed        Code = "callback_failed"
+	InvalidRequest        Code = "invalid_request"
+	CallQuotaExceeded     Code = "quota_exceeded"
 )
 
 // Error exposes a safe code. Unwrap is for internal diagnostics only; an
@@ -60,6 +62,7 @@ type Connect func(context.Context) (*quiccontrol.Carrier, quicsession.Options, e
 type Config struct {
 	Connect                Connect
 	QUIC                   *QUICConfig
+	ServiceHTTP            *ServiceHTTPConfig
 	Handler                http.Handler
 	Development            bool
 	ConnectTimeout         time.Duration
@@ -86,11 +89,17 @@ type Client struct {
 	err                        error
 	service                    *quicsession.Service
 	renewal                    *quicRenewal
+	http                       *serviceHTTPState
 	connectCancel              context.CancelFunc
 	wake, changed, done        chan struct{}
 }
 
 func New(config Config) (*Client, error) {
+	outgoing, err := newServiceHTTP(config.ServiceHTTP, config.QUIC)
+	if err != nil {
+		return nil, err
+	}
+	config.ServiceHTTP = nil
 	var renewal *quicRenewal
 	if config.QUIC != nil {
 		if config.Connect != nil || config.QUIC.Development != config.Development {
@@ -116,7 +125,7 @@ func New(config Config) (*Client, error) {
 	if config.Connect == nil || config.Handler == nil || config.ConnectTimeout <= 0 || config.ConnectTimeout > 30*time.Second || config.BackoffMin < time.Millisecond || config.BackoffMax < config.BackoffMin || config.BackoffMax > 30*time.Second {
 		return nil, &Error{Code: InvalidConfig}
 	}
-	return &Client{config: config, renewal: renewal, status: ClientStatus{State: sessionstate.Created}, wake: make(chan struct{}, 1), changed: make(chan struct{}), done: make(chan struct{})}, nil
+	return &Client{config: config, renewal: renewal, http: outgoing, status: ClientStatus{State: sessionstate.Created}, wake: make(chan struct{}, 1), changed: make(chan struct{}), done: make(chan struct{})}, nil
 }
 
 func (c *Client) Done() <-chan struct{} { return c.done }
@@ -190,6 +199,7 @@ func (c *Client) SetSecurity(ready bool, deadline time.Time) error {
 		return ErrClientNotReady
 	}
 	err := c.service.SetSecurity(ready, deadline)
+	c.http.shorten(deadline)
 	c.statusLocked()
 	c.notifyLocked()
 	return err
@@ -203,6 +213,7 @@ func (c *Client) Revoke() {
 		return
 	}
 	c.revoked, c.closing = true, true
+	c.http.stop()
 	c.deadline = time.Now()
 	c.status.State, c.status.LastErrorCode = sessionstate.Draining, SecurityFailure
 	if c.connectCancel != nil {
@@ -260,6 +271,7 @@ func (c *Client) requestClose(deadline time.Time) {
 	if c.connectCancel != nil {
 		c.connectCancel()
 	}
+	c.http.shorten(c.deadline)
 	c.status.State = sessionstate.Draining
 	c.notifyLocked()
 	if !c.started {
@@ -286,7 +298,12 @@ func (c *Client) finishLocked(err error) {
 		c.status.LastErrorCode = e.Code
 	}
 	c.notifyLocked()
-	close(c.done)
+	if c.http == nil {
+		close(c.done)
+	} else {
+		c.http.stop()
+		go func() { c.http.wait(); close(c.done) }()
+	}
 }
 
 // Run owns all reconnect attempts. Canceling ctx requests graceful final drain;
@@ -307,9 +324,13 @@ func (c *Client) Run(ctx context.Context) (result error) {
 	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
-		defer c.mu.Unlock()
-		if c.finished {
+		finished := c.finished
+		if finished {
 			result = c.err
+		}
+		c.mu.Unlock()
+		if finished {
+			<-c.done
 		}
 	}()
 	stop := context.AfterFunc(ctx, func() { c.requestClose(time.Now().Add(30 * time.Second)) })
@@ -556,6 +577,12 @@ func (c *Client) serve(service *quicsession.Service) (error, bool, bool) {
 				refreshCancel()
 				<-refreshDone
 				refreshCancel, refreshDone = nil, nil
+			}
+			c.mu.Lock()
+			finalClose := c.closing
+			c.mu.Unlock()
+			if finalClose {
+				c.http.wait()
 			}
 			err := service.Err()
 			rotated = rotated && !service.PeerShutdownRequested()

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"time"
@@ -20,6 +21,8 @@ type quicRenewal struct {
 	fingerprint       [32]byte
 	expiry, refreshAt time.Time
 	pending           *CredentialSnapshot
+	httpCertificate   tls.Certificate
+	httpGrantID       string
 }
 
 func earlierDeadline(a, b time.Time) time.Time {

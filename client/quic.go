@@ -242,6 +242,8 @@ func newQUICConnector(config QUICConfig, renewal *quicRenewal) (Connect, error) 
 			renewal.generation, renewal.fingerprint = snapshot.Generation, snapshotFingerprint(snapshot)
 			renewal.expiry = earlierDeadline(time.Unix(*ack.CredentialExpiresAt, 0), options.SecurityDeadline)
 			renewal.refreshAt = renewalTime(now, renewal.expiry)
+			renewal.httpCertificate = snapshot.Certificate
+			renewal.httpGrantID = string(snapshot.Credential[:bytes.IndexByte(snapshot.Credential, '.')])
 		}
 		return carrier, options, nil
 	}, nil

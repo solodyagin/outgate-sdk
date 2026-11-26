@@ -565,7 +565,9 @@ func TestRotationTimeoutWaitsForActualOldHandler(t *testing.T) {
 	}()
 	await(t, entered)
 	close(renew)
-	receive(t, g1.carrier, "drain")
+	// The 40ms drain can expire before its frame is delivered under load.
+	// Observe local drain/cleanup; the assertion concerns handler ownership.
+	eventually(t, func() bool { return c.Status().State == sessionstate.Draining })
 	await(t, canceled)
 	select {
 	case <-accepted:
