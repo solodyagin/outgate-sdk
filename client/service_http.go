@@ -199,7 +199,7 @@ func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Resp
 		c.mu.Unlock()
 		return nil, ErrClientNotReady
 	}
-	if binding, ok := req.Context().Value(discoveryBindingKey{}).(discoveryBinding); ok && (binding.generation != c.renewal.httpEpoch || binding.key.target != target) {
+	if binding, ok := req.Context().Value(discoveryBindingKey{}).(discoveryBinding); ok && (binding.generation != c.renewal.httpEpoch || binding.key.target != target || binding.key.origin != t.origin) {
 		c.mu.Unlock()
 		return nil, &Error{Code: DiscoveryUnavailable}
 	}

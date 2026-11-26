@@ -338,3 +338,24 @@ func TestDiscoveryExplicitDevelopmentUsesServiceBearer(t *testing.T) {
 		t.Fatal("development helper failed")
 	}
 }
+
+func TestDiscoveryBuiltRequestCannotCrossOrigin(t *testing.T) {
+	e := dialEnv(t)
+	var otherHits atomic.Int32
+	first := serviceHTTPServer(t, e, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeDiscovery(w, 1, "/api") }))
+	other := serviceHTTPServer(t, e, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { otherHits.Add(1); w.WriteHeader(204) }))
+	c, _ := readyServiceHTTP(t, e, ServiceHTTPConfig{ServerRoots: e.config.ServerRoots, SigningKey: serviceHTTPKey()})
+	req, err := c.NewServiceRequest(t.Context(), first.URL, "GET", "target-service", "api", "/", nil)
+	must(t, err)
+	changed, err := http.NewRequestWithContext(req.Context(), req.Method, other.URL+req.URL.RequestURI(), nil)
+	must(t, err)
+	changed.Header = req.Header.Clone()
+	client, err := c.ServiceHTTPClient(other.URL)
+	must(t, err)
+	if _, err := client.Do(changed); !errors.Is(err, &Error{Code: DiscoveryUnavailable}) {
+		t.Fatal(err)
+	}
+	if otherHits.Load() != 0 {
+		t.Fatal("helper request crossed authenticated discovery origin")
+	}
+}
