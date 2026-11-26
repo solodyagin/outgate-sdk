@@ -550,6 +550,13 @@ func (c *Client) serve(service *quicsession.Service) (error, bool, bool) {
 			if drainDone != nil {
 				<-drainDone
 			}
+			// Source completion is part of cleanup too. Observe final intent and
+			// the Close deadline only after an outstanding callback has returned.
+			if refreshCancel != nil {
+				refreshCancel()
+				<-refreshDone
+				refreshCancel, refreshDone = nil, nil
+			}
 			err := service.Err()
 			rotated = rotated && !service.PeerShutdownRequested()
 			c.mu.Lock()
