@@ -1,0 +1,15 @@
+# Проверка issuer JWT
+
+`delegation.New(Config)` создаёт verifier без I/O и workers. Пакет использует standard library и чистый JSON validator из `protocol/v1`; gateway dependencies отсутствуют. `Verify(token, caller, target, now)` возвращает `Verified` только после проверки подписи и claims. `Verified.User()` возвращает owned копию; `Identity()` содержит проверенные issuer/subject/actor/target/session/token/key IDs и сроки, без исходного токена. Это ещё не revocation или route authorization.
+
+Поддерживается один фиксированный алгоритм RS256, RSA 2048…8192 bits, точный `typ=outgate-delegation+jwt` и обязательный `kid`. `none`, HMAC, другие алгоритмы, `crit` и unencoded payload отклоняются. Ключ выбирается только из конфигурации; `jku`, `x5u`, `jwk`, `x5c` из JWT не меняют trust и не вызывают I/O. Compact JWT ограничен 16 KiB, JSON проверяется на duplicate keys, UTF-8, surrogate pairs и глубину до обработки claims.
+
+`Config.Issuer` — точный HTTPS issuer; нормализация claims не выполняется. `aud` должен быть target service ID: строка или массив ровно из одной строки. Непосредственный `act.sub` обязан совпадать с actual caller; вложенные предыдущие actors не дают полномочий. Обязательны `sub`, `sid`, `jti`, целочисленные `iat` и `exp`; `nbf` optional, при отсутствии применяется `iat`. Lifetime не более 300s, configurable ClockSkew 0…30s (default 0). Проверяется и время выпуска, и начало/конец действия.
+
+`ClaimMap` явно задаёт имена claims user ID, roles, session ID и optional attributes. Mapped session ID обязан совпадать с `sid`. Roles — обязательный JSON array строк; attributes при наличии — строки. User ID ограничен 128 UTF-8 bytes, роли — 32 по 64 bytes, attributes — 16 по 1024 bytes. Control characters, invalid UTF-8 и пустые значения отклоняются. `CopyUser` проверяет raw пределы и копирует slices/maps; окончательный сериализованный HTTP context ≤8 KiB проверяется `httpsig` после mapping заголовков в client.
+
+`KeySnapshot` задаёт 1…32 trusted public keys и интервал `[LoadedAt, ValidUntil)` не более 5 минут. Конструктор и `ReplaceKeys` копируют map и RSA modulus. Замена атомарна, более старый LoadedAt отклоняется; concurrent Verify безопасен. Unknown kid, просроченный или ещё не действующий snapshot дают fail-closed отказ. Snapshot expiry не продлевается локальным чтением.
+
+JWKS fetch/cache/refresh здесь отсутствуют. Приложение отвечает за аутентифицированный источник snapshot и своевременную замену; verifier не выполняет unknown-kid refresh. Это первый ограниченный профиль, не вся JWT/JWKS конфигурация gateway. Состояние user/session revocation и разрешение маршрута проверяются отдельно. Подключение к исходящему HTTPS описано в [client/user.md](../client/user.md); входящий trusted-context middleware ещё не реализован.
+
+Тесты включают подписанные negative cases, key/claim-map ownership, stale/unknown keys, подмену алгоритма/issuer/audience/actor, time bounds, duplicate JSON и fuzz target `FuzzAssertion`.

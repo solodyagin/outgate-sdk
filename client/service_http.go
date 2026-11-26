@@ -35,6 +35,8 @@ type ServiceHTTPConfig struct {
 	MaxConcurrent                                                            int
 	DialTimeout, TLSHandshakeTimeout, ResponseHeaderTimeout, BodyIdleTimeout time.Duration
 	DiscoveryTimeout                                                         time.Duration
+	AttributeHeaders                                                         map[string]string
+	Delegation                                                               *DelegationConfig
 }
 
 type targetServiceKey struct{}
@@ -46,13 +48,15 @@ func WithTargetService(ctx context.Context, id string) context.Context {
 }
 
 type serviceHTTPState struct {
-	mu          sync.Mutex
-	config      ServiceHTTPConfig
-	caller      string
-	development bool
-	active      map[*serviceHTTPCall]struct{}
-	changed     chan struct{}
-	discovery   discoveryCache
+	mu             sync.Mutex
+	config         ServiceHTTPConfig
+	caller         string
+	development    bool
+	active         map[*serviceHTTPCall]struct{}
+	changed        chan struct{}
+	discovery      discoveryCache
+	attributeNames []string
+	userSlot       chan struct{}
 }
 
 func newServiceHTTP(config *ServiceHTTPConfig, quic *QUICConfig) (*serviceHTTPState, error) {
@@ -89,9 +93,33 @@ func newServiceHTTP(config *ServiceHTTPConfig, quic *QUICConfig) (*serviceHTTPSt
 			return bad()
 		}
 	}
+	if len(c.AttributeHeaders) > 16 {
+		return bad()
+	}
+	attributes := make(map[string]string, len(c.AttributeHeaders))
+	names := make([]string, 0, len(c.AttributeHeaders))
+	for logical, header := range c.AttributeHeaders {
+		if len(logical) == 0 || len(logical) > 64 {
+			return bad()
+		}
+		header = strings.ToLower(header)
+		attributes[logical] = header
+		names = append(names, header)
+	}
+	if _, err := httpsig.New(httpsig.Config{Leg: httpsig.Call, Development: quic.Development, AttributeHeaders: names}); err != nil {
+		return bad()
+	}
+	c.AttributeHeaders = attributes
+	if c.Delegation != nil {
+		if c.Delegation.Verifier == nil || c.Delegation.SecurityCheck == nil {
+			return bad()
+		}
+		owned := *c.Delegation
+		c.Delegation = &owned
+	}
 	c.ServerRoots = c.ServerRoots.Clone()
 	c.SigningKey.Secret = bytes.Clone(c.SigningKey.Secret)
-	return &serviceHTTPState{config: c, caller: quic.Register.ServiceID, development: quic.Development, active: make(map[*serviceHTTPCall]struct{}), changed: make(chan struct{})}, nil
+	return &serviceHTTPState{config: c, caller: quic.Register.ServiceID, development: quic.Development, active: make(map[*serviceHTTPCall]struct{}), changed: make(chan struct{}), attributeNames: names, userSlot: make(chan struct{}, 1)}, nil
 }
 
 func serviceID(s string) bool {
@@ -203,6 +231,7 @@ func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Resp
 		c.mu.Unlock()
 		return nil, &Error{Code: DiscoveryUnavailable}
 	}
+	epoch := c.renewal.httpEpoch
 	certificate, grantID := c.renewal.httpCertificate, c.renewal.httpGrantID
 	bearer := c.renewal.httpDiscoveryBearer
 	deadline := earlierDeadline(c.renewal.expiry, c.service.Snapshot().Deadline)
@@ -229,11 +258,16 @@ func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Resp
 			headers = append(headers, v1.Header{"x-outgate-deployment-grant-id", grantID})
 		}
 	} else {
-		headers = append(headers, v1.Header{"x-outgate-caller-service", c.http.caller}, v1.Header{"x-outgate-target-service", target}, v1.Header{"x-outgate-context-headers", "[]"})
+		userFields, userErr := c.http.userHeaders(call, req.Context(), target)
+		if userErr != nil {
+			return nil, userErr
+		}
+		headers = append(headers, userFields...)
+		headers = append(headers, v1.Header{"x-outgate-caller-service", c.http.caller}, v1.Header{"x-outgate-target-service", target})
 		if !c.http.development {
 			headers = append(headers, v1.Header{"x-outgate-hop-limit", "8"}, v1.Header{"x-outgate-deployment-grant-id", grantID})
 		}
-		profile, _ := httpsig.New(httpsig.Config{Leg: httpsig.Call, Development: c.http.development})
+		profile, _ := httpsig.New(httpsig.Config{Leg: httpsig.Call, Development: c.http.development, AttributeHeaders: c.http.attributeNames})
 		authority := req.Host
 		if authority == "" {
 			authority = req.URL.Host
@@ -262,6 +296,21 @@ func (t *serviceHTTPTransport) RoundTrip(req *http.Request) (response *http.Resp
 	}
 	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: config.DialTimeout}).DialContext, TLSClientConfig: tlsConfig, TLSHandshakeTimeout: config.TLSHandshakeTimeout, ResponseHeaderTimeout: config.ResponseHeaderTimeout, MaxResponseHeaderBytes: 32768, DisableKeepAlives: true, DisableCompression: true, ForceAttemptHTTP2: false, TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{}}
 	defer transport.CloseIdleConnections()
+	// Dispatch is linearized after all external security work. A request held
+	// in a callback must not create a new delivery with a superseded pair.
+	c.mu.Lock()
+	if c.finished || c.closing {
+		c.mu.Unlock()
+		return nil, ErrClientClosed
+	}
+	ready := c.service != nil && c.statusLocked().State == sessionstate.Ready && c.renewal.httpEpoch == epoch
+	c.mu.Unlock()
+	if !ready {
+		return nil, ErrClientNotReady
+	}
+	if call.ctx.Err() != nil {
+		return nil, &Error{Code: SecurityFailure, cause: call.ctx.Err()}
+	}
 	if clone.Body != nil && clone.Body != http.NoBody {
 		clone.Body = newHTTPProgressBody(call.ctx, clone.Body, config.BodyIdleTimeout, call.cancel, nil)
 	}
