@@ -180,6 +180,21 @@ func (s *Service) SetSecurity(ready bool, deadline time.Time) error {
 	return err
 }
 
+// RenewSecurity applies a newly verified bounded freshness assertion. Unlike
+// SetSecurity it may replace the renewable lease, but never extends hard
+// SetSecurity/credential/drain deadlines or revives an expired transport.
+func (s *Service) RenewSecurity(ready bool, deadline time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopping {
+		return sessionstate.ErrState
+	}
+	effect, err := s.state.RenewSecurity(ready, deadline, time.Now())
+	s.effectLocked(effect, err)
+	s.signal()
+	return err
+}
+
 // Revoke preempts even a terminal rotation acknowledgement during cleanup.
 func (s *Service) Revoke() {
 	s.mu.Lock()

@@ -468,3 +468,26 @@ func TestSecurityDeadlineDoesNotWaitForPeriodicTick(t *testing.T) {
 		t.Fatal(s.Err())
 	}
 }
+
+func TestServiceRenewSecurityReplacesOnlyFreshnessLease(t *testing.T) {
+	c, g := pair(t, false, nil)
+	s := start(t, c, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), Options{SecurityReady: true})
+	status(t, g, true)
+	must(t, s.RenewSecurity(true, time.Now().Add(150*time.Millisecond)))
+	for range 4 {
+		select {
+		case <-s.Done():
+			t.Fatal("fresh lease expired", s.Err())
+		case <-time.After(40 * time.Millisecond):
+		}
+		must(t, s.RenewSecurity(true, time.Now().Add(150*time.Millisecond)))
+	}
+	if !s.Snapshot().TransportActive {
+		t.Fatal("refresh did not keep transport active")
+	}
+	s.Revoke()
+	if err := s.RenewSecurity(true, time.Now().Add(time.Second)); err == nil {
+		t.Fatal("renewal revived revoked service")
+	}
+	await(t, s.Done())
+}

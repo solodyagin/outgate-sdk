@@ -8,7 +8,7 @@
 |---|---|---|
 | Wire messages, paths, discovery codec | ТЗ 3.2–3.3, 3.22, 4; protocol 2–7, 10–12 | `protocol/v1`, нужные definitions в `docs/*schema.json`, соответствующие fixtures; `package ./protocol/v1`, `contracts` |
 | WSS HTTP/WS state и budgets | ТЗ 3.7, 3.11, 4.3–4.5; protocol 4, 6–7, 11–12 | [wssstate](../wssstate/README.md), `wssstate/state.go`, тесты; `package ./wssstate` |
-| Session readiness / drain / fence | ТЗ 3.7, 3.21, 5.6; protocol 8 | [sessionstate](../sessionstate/README.md), `sessionstate`, [quicsession](../transport/quicsession/README.md); `package ./sessionstate ./transport/quicsession` |
+| Session readiness / security lease renewal / drain / fence | ТЗ 3.7, 3.21, 5.6; protocol 8 | [sessionstate](../sessionstate/README.md), `sessionstate`, [quicsession](../transport/quicsession/README.md); `package ./sessionstate ./transport/quicsession` |
 | QUIC bootstrap / streaming HTTP/3 | ТЗ 4.2, 5.6; protocol 3, 5, 8, 11–12 | [quiccontrol](../transport/quiccontrol/README.md), [quichttp](../transport/quichttp/README.md), их код/тесты; `package ./transport/...`; gateway interoperability отдельно |
 | Public lifecycle / reconnect | ТЗ 3.10, 3.21, 5.6; protocol 8 | [client](../client/README.md), `client/client.go`, тесты; `package ./client` |
 | Credential snapshots / dial / renewal | ТЗ 3.25, 6.5; gateway `docs/credentials.md` | [QUIC client](../client/quic.md), `client/quic.go`, `credentials*.go`, `renewal.go`, тесты; `package ./client` |

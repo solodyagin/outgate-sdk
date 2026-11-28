@@ -37,3 +37,26 @@ Disconnected/revoke/expiry сохраняют счётчик native leases до 
 После ack из negotiated buffer_bytes сначала вычитается `MaxCommands × 128` bytes под prepaid command-map capacity, остаток передаётся wssstate. Snapshot.ReservedBytes включает обе модели. Command history не освобождает свой фиксированный резерв до завершения транспорта. Register хранится в bounded deep copy до ack; предрегистрационный buffer и реальные transport/control queues/handler allocations требуют отдельных квот adapter. Snapshot accounting не измеряет RSS и не доказывает actual handler cleanup.
 
 Tests используют fake time, обе роли и неизменённый golden register/ack. Проверяются registration/security/barrier, sequence/stale, callback thresholds/timeout/slot across disconnect, drain races/fences, HTTP/WS completion/Consume, simultaneous ack, unregister cleanup, deadlines/rotation/revoke, bounded history и новая namespace. FuzzSessionLifecycle проверяет обе стороны с отложенной доставкой prior start через Service-origin drain и окончательным освобождением модели. Unit/model-проверки не заменяют transport integration или native Windows runtime acceptance.
+
+
+## Проверяемое продление security lease
+
+`RenewSecurity(ready, validUntil, now)` — явное утверждение владельца о новой
+проверке авторитетных security sources, не автоматический refresh. Метод доступен
+только после ack на живом транспорте. ValidUntil обязателен, строго в будущем и
+не дальше 5s; некорректное утверждение завершает transport с cleanup effect.
+Сначала применяется Advance: expired/revoked/disconnected/terminal session
+невозможно оживить запоздалым результатом. Вызовы сериализует владелец; модель
+не аутентифицирует источник и не выполняет I/O.
+
+Renewable deadline хранится отдельно от hard deadline старого `Security`,
+credential expiry и drain deadline. Только renewable deadline можно заменить;
+legacy Security остаётся операцией, которая лишь сокращает hard cap. Snapshot
+показывает минимум всех сроков. Renewal не обновляет instance_status receipt,
+локальную readiness probe, replay barrier, drain/fence/terminal intent и не
+освобождает native leases до actual cleanup. Ready=false снимает readiness при
+сохранении bounded freshness; Ready=true требует всех остальных gates.
+Begin после разрешённого reconnect сбрасывает обе локальные security deadlines.
+Wire/schema/fixtures не менялись. Runtime обязан проверять grant/revocations,
+certificate expiry и health до каждого вызова, а при отказе выполнять revoke /
+cleanup, не продолжать offline на старом snapshot.

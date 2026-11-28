@@ -105,6 +105,7 @@ type State struct {
 
 	securityReady             bool
 	securityDeadline          time.Time
+	securityLeaseDeadline     time.Time
 	registerDeadline          time.Time
 	drainDeadline             time.Time
 	lastTime, lastStatus      time.Time
@@ -145,7 +146,7 @@ func New(c Config) (*State, error) {
 
 func (s *State) Snapshot() Snapshot {
 	out := Snapshot{Phase: s.phase, TransportActive: s.active, CleanupRequired: s.cleanup, SessionID: s.sessionID, Sequence: s.sequence, LastStatus: s.lastStatus, Deadline: earlier(s.registerDeadline, s.drainDeadline), Fenced: s.fence, Commands: len(s.commands)}
-	out.Deadline = earlier(out.Deadline, earlier(s.securityDeadline, s.expiry))
+	out.Deadline = earlier(out.Deadline, earlier(s.securityDeadline, earlier(s.securityLeaseDeadline, s.expiry)))
 	out.ProbeOutstanding = s.probeRunning
 	out.NativeActive = s.nativeActive
 	out.LocalReady = s.config.Local == Service && s.active && s.registered && s.phase != Draining && s.eligible(s.lastTime)
@@ -188,6 +189,7 @@ func (s *State) Begin(now time.Time) error {
 	s.active = true
 	s.securityReady = false
 	s.securityDeadline = time.Time{}
+	s.securityLeaseDeadline = time.Time{}
 	s.registerDeadline = now.Add(s.config.RegisterTimeout)
 	s.drainDeadline = time.Time{}
 	s.lastStatus = time.Time{}
@@ -250,6 +252,29 @@ func (s *State) Security(ready bool, deadline, now time.Time) (Effect, error) {
 	s.securityDeadline = earlier(s.securityDeadline, deadline)
 	return s.Advance(now)
 }
+
+// RenewSecurity installs/replaces a verified freshness lease on this registered
+// transport. The caller must recheck authoritative security sources, then supply
+// a nonzero future deadline no more than five seconds away. Advance runs FIRST:
+// an expired, revoked, disconnected or terminal session can never be revived.
+// Legacy Security deadlines, credential expiry, replay/readiness/status barriers
+// and drain intent remain independent hard bounds. Invalid assertions close the
+// transport. This method performs no authentication, I/O or automatic refresh.
+func (s *State) RenewSecurity(ready bool, deadline, now time.Time) (Effect, error) {
+	if effect, err := s.Advance(now); err != nil {
+		return effect, err
+	}
+	if !s.active || !s.registered {
+		return Effect{}, ErrState
+	}
+	if deadline.IsZero() || !deadline.After(now) || deadline.Sub(now) > 5*time.Second {
+		return s.finish(false), ErrSecurity
+	}
+	s.securityReady = ready
+	s.securityLeaseDeadline = deadline
+	return s.Advance(now)
+}
+
 func (s *State) Revoke(now time.Time) (Effect, error) {
 	if err := s.clock(now); err != nil {
 		return s.finish(false), err
@@ -269,7 +294,7 @@ func (s *State) Advance(now time.Time) (Effect, error) {
 	if !s.active {
 		return Effect{}, nil
 	}
-	if reached(now, s.securityDeadline) || reached(now, s.expiry) {
+	if reached(now, s.securityDeadline) || reached(now, s.securityLeaseDeadline) || reached(now, s.expiry) {
 		return s.finish(false), ErrSecurity
 	}
 	if reached(now, s.registerDeadline) {
