@@ -14,3 +14,14 @@ DB/WAL/SHM проверяются во время работы. Потеря и�
 При потере state остановите verifier. Восстановите актуальные отзывы, установите новую epoch в доверенном control state и выполните согласованную процедуру восстановления. Для сброшенного namespace используйте новый путь, сохраните старые файлы для проверки и опубликуйте recovery barrier в control state для всех verifier. Внешние процедуры восстановления control/revocation state и проверку локального диска выполняет развёртывание.
 
 Тесты проверяют реальную SQLite, конкурентные транзакции с двух соединений, повтор после чистого перезапуска и после принудительного завершения процесса на включительной границе, квоты, откат часов, отказ записи и отсутствие WAL. Тесты с выключением питания, оценка пропускной способности и PostgreSQL остаются отдельными этапами.
+
+
+`SQLite.Health(ctx)` verifies the same files, WAL/FULL, namespace/epoch and retained
+clock watermark as readiness, including while the 120s startup barrier is still
+running. It returns the immutable earliest readiness time for a healthy store.
+It performs no reservation/write and never lifts the barrier or created cutoff;
+Ready/Reserve still refuse protected traffic until the original deadline. A
+controller can renew a healthy registered-but-unready tunnel using this time,
+while missing/corrupt/rolled-back state remains an error. Current authoritative
+control/revocation checks are additionally required. Health is not rollback proof
+for a whole installation restored together with all independent evidence.

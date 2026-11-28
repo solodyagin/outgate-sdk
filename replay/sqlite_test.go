@@ -279,3 +279,62 @@ func TestSQLiteRejectsUndersizedQuota(t *testing.T) {
 		t.Fatalf("undersized quota: %v", err)
 	}
 }
+
+func TestSQLiteHealthDistinguishesWarmupWithoutAdmittingReplay(t *testing.T) {
+	config := testConfig(t)
+	require(t, InitializeSQLite(t.Context(), config))
+	now := time.Now()
+	store := newStore(t, config, &now)
+	barrier, err := store.Health(t.Context())
+	require(t, err)
+	if !barrier.Equal(now.Add(RecoveryBarrier)) {
+		t.Fatal("health changed startup barrier")
+	}
+	if err := store.Ready(t.Context()); !errors.Is(err, httpsig.ErrReplayUnavailable) {
+		t.Fatal("health bypassed readiness", err)
+	}
+	if err := store.Reserve(t.Context(), reservation(config, "sender", 1, now)); !errors.Is(err, httpsig.ErrReplayUnavailable) {
+		t.Fatal("health allowed early reservation", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := store.Health(ctx); !errors.Is(err, httpsig.ErrReplayUnavailable) {
+		t.Fatal("canceled health succeeded", err)
+	}
+	now = barrier
+	second, err := store.Health(t.Context())
+	require(t, err)
+	if !second.Equal(barrier) {
+		t.Fatal("health restarted warmup")
+	}
+	require(t, store.Ready(t.Context()))
+	require(t, store.Reserve(t.Context(), reservation(config, "sender", 2, now.Truncate(time.Second))))
+	require(t, store.Close())
+	if _, err := store.Health(t.Context()); !errors.Is(err, httpsig.ErrReplayUnavailable) {
+		t.Fatal("closed store healthy", err)
+	}
+}
+
+func TestSQLiteHealthFailsDuringWarmupOnCorruptionOrMissingFiles(t *testing.T) {
+	for _, fault := range []string{"epoch", "missing_wal", "watermark"} {
+		t.Run(fault, func(t *testing.T) {
+			config := testConfig(t)
+			require(t, InitializeSQLite(t.Context(), config))
+			now := time.Now()
+			store := newStore(t, config, &now)
+			switch fault {
+			case "epoch":
+				_, err := store.db.Exec("UPDATE replay_metadata SET epoch=?", bytes.Repeat([]byte{9}, 32))
+				require(t, err)
+			case "missing_wal":
+				require(t, os.Rename(config.Path+"-wal", config.Path+"-moved"))
+			case "watermark":
+				_, err := store.db.Exec("UPDATE replay_metadata SET clock_ns=?", now.Add(time.Minute).UnixNano())
+				require(t, err)
+			}
+			if _, err := store.Health(t.Context()); !errors.Is(err, httpsig.ErrReplayUnavailable) {
+				t.Fatal("broken store reported healthy during warmup", err)
+			}
+		})
+	}
+}

@@ -270,6 +270,17 @@ func (s *SQLite) Ready(ctx context.Context) error {
 	return s.transaction(ctx, false, nil)
 }
 
+// Health verifies files, WAL/FULL, namespace/epoch and the retained clock
+// watermark even during recovery warmup. It returns the immutable earliest
+// readiness time, NOT permission to reserve/dispatch. Ready and Reserve retain
+// the full startup barrier and created cutoff. Revocation health is external.
+func (s *SQLite) Health(ctx context.Context) (time.Time, error) {
+	if err := s.transactionHealth(ctx, false, nil, true); err != nil {
+		return time.Time{}, err
+	}
+	return s.readyAt, nil
+}
+
 // Prune removes up to 256 expired rows and returns the number removed.
 func (s *SQLite) Prune(ctx context.Context) (int64, error) {
 	var deleted int64
@@ -330,7 +341,12 @@ func (s *SQLite) reserve(ctx context.Context, tx *sql.Tx, reservation httpsig.Re
 }
 
 func (s *SQLite) transaction(ctx context.Context, write bool, operation func(*sql.Tx, time.Time) error) error {
-	if !s.filesIntact() || s.clock().Before(s.readyAt) {
+	return s.transactionHealth(ctx, write, operation, false)
+}
+
+// allowWarmup is used only by the read-only Health assertion, never mutations.
+func (s *SQLite) transactionHealth(ctx context.Context, write bool, operation func(*sql.Tx, time.Time) error, allowWarmup bool) error {
+	if !s.filesIntact() || !allowWarmup && s.clock().Before(s.readyAt) {
 		return httpsig.ErrReplayUnavailable
 	}
 	conn, err := s.db.Conn(ctx)
@@ -355,7 +371,7 @@ func (s *SQLite) transaction(ctx context.Context, write bool, operation func(*sq
 		}
 		return httpsig.ErrReplayUnavailable
 	}
-	if stamp < watermark || now.Before(s.readyAt) || ctx.Err() != nil || !s.filesIntact() {
+	if stamp < watermark || !allowWarmup && now.Before(s.readyAt) || ctx.Err() != nil || !s.filesIntact() {
 		return httpsig.ErrReplayUnavailable
 	}
 	if !write {
